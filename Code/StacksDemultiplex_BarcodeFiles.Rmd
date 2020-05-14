@@ -1,0 +1,64 @@
+---
+title: "Barcode file for Stacks demultiplexing"
+author: "Grace Smith-Vidaurre"
+date: "May 14, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose of this script? What came before?
+
+Clean environment, load packages, set path.
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse")
+
+invisible(lapply(X, library, character.only = TRUE))
+
+path <- "/home/owner/Desktop/MANUSCRIPTS/Origins&Selection/DATA/Metadata_Barcodes"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.csv(file.path(path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.csv"))
+glimpse(meta_dats)
+
+```
+
+See Stacks manual for barcode file format: http://catchenlab.life.illinois.edu/stacks/manual/#clean
+
+From the manual: "The barcode file is a very simple format — one barcode per line; if you want to rename the output files, the sample name prefix is provided in the second column."
+
+Make a barcode file for Stacks::process_radtags per single-end and paired-end sets of libraries.
+
+Single-end libraries.
+```{r echo = TRUE, eval = TRUE}
+
+tmp_df <- meta_dats %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  droplevels()
+glimpse(tmp_df)
+
+
+
+```
+
+Paired-end libraries.
+```{r echo = TRUE, eval = TRUE}
+
+tmp_df <- meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  droplevels()
+glimpse(tmp_df)
+
+
+```
