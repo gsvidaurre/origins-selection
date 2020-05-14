@@ -1,2 +1,2 @@
 # origins-selection
-Scripts associated with Origins &amp; Selection manuscript (thesis chapter)
+Code and scripts associated with Origins &amp; Selection manuscript (thesis chapter)
