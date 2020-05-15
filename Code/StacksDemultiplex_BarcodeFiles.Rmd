@@ -18,11 +18,13 @@ Clean environment, load packages, set path.
 
 rm(list = ls())
 
-X <- c("tidyverse")
+X <- c("tidyverse", "pbapply")
 
 invisible(lapply(X, library, character.only = TRUE))
 
-path <- "/home/owner/Desktop/MANUSCRIPTS/Origins&Selection/DATA/Metadata_Barcodes"
+# Switch to working on MYIOPSITTA, copied the .csv from this folder over
+# path <- "/home/owner/Desktop/MANUSCRIPTS/Origins&Selection/DATA/Metadata_Barcodes"
+path <- "/media/owner/MYIOPSITTA/R/Origins&Selection/barcodes"
 
 ```
 
@@ -38,27 +40,48 @@ See Stacks manual for barcode file format: http://catchenlab.life.illinois.edu/s
 
 From the manual: "The barcode file is a very simple format — one barcode per line; if you want to rename the output files, the sample name prefix is provided in the second column."
 
-Make a barcode file for Stacks::process_radtags per single-end and paired-end sets of libraries.
+Make a barcode file for Stacks::process_radtags per single-end and paired-end sets of libraries. These .txt files should be tab spaced.
 
 Single-end libraries.
 ```{r echo = TRUE, eval = TRUE}
 
-tmp_df <- meta_dats %>%
-  filter(Sequencing_Type == "Single-end") %>%
-  droplevels()
-glimpse(tmp_df)
+seq_type <- c("Single-end", "Paired-end")
+seq_abb <- c("SE", "PE")
 
+# x <- 1
+invisible(pblapply(1:length(seq_type), function(i){
+  
+  tmp_df <- meta_dats %>%
+    filter(Sequencing_Type == seq_type[i]) %>%
+    droplevels()
+  # glimpse(tmp_df)
 
-
-```
-
-Paired-end libraries.
-```{r echo = TRUE, eval = TRUE}
-
-tmp_df <- meta_dats %>%
-  filter(Sequencing_Type == "Paired-end") %>%
-  droplevels()
-glimpse(tmp_df)
+  # Iterate over libraries
+  libs <- tmp_df %>%
+    pull(Library_Plate) %>%
+    unique()
+  # libs
+  
+  lapply(1:length(libs), function(x){
+    
+    tmp_df2 <- tmp_df %>%
+      filter(Library_Plate == libs[x])
+  
+    # Initialize a new .txt file per library
+    fileConn <- file(file.path(path, paste(seq_abb[i], "_barcodes_library", libs[x], ".txt", sep = "")))
+  
+    barcodes <- tmp_df2 %>%
+      pull(Barcode_Sequence)
+    
+    sample_nms <- tmp_df2 %>%
+      pull(Sample_Name)
+    
+    writeLines(paste(barcodes, sample_nms, sep = "\t"), fileConn)
+    close(fileConn)
+    
+  })
+  
+}))
 
 
 ```
