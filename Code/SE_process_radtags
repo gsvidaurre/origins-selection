@@ -1,0 +1,19 @@
+#!/bin/bash
+# G.Smith-Vidaurre
+# 15 May 2020
+
+# Purpose: Demultiplex single-end libraries in Stacks
+
+src=/media/owner/MYIOPSITTA/R/Origins_Selection/raw/single_end_2015
+out_path=/media/owner/MYIOPSITTA/R/Origins_Selection
+
+# Run process_radtags on library 1
+/usr/local/bin/process_radtags -p $src/lib1/ \
+        -o $out_path/samples/single_end_2015 -b $out_path/barcodes/SE_barcodes_library1.txt \
+        -e sbfI -r -c -q -D --inline_null
+
+# Run process_radtags on library 2
+/usr/local/bin/process_radtags -p $src/lib2/ \
+        -o $out_path/samples/single_end_2015 -b $out_path/barcodes/SE_barcodes_library2.txt \
+        -e sbfI -r -c -q -D --inline_null
+

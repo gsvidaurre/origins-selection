@@ -1,0 +1,60 @@
+#!/bin/bash
+# G.Smith-Vidaurre
+# 19 May 2020
+
+# Purpose: Troubleshoot demultiplexing of paired-end libraries in Stacks. Print reads per fastq.gz file in the paired-end libraries to see if read structure matches expectations (see "stacks_demultiplex.txt" in METHODS_LOGS).
+
+src=/media/owner/MYIOPSITTA/R/Origins_Selection/raw/paired_end_2019
+out_path=/media/owner/MYIOPSITTA/R/Origins_Selection
+
+# Initialize the files with single-end reads per paired-end library (_R1_, the forward reads per pair)
+files=`for i in $src; do
+	find $i*/ -type f -iname "*_R1_*.gz";
+done`
+
+for i in $files; do
+
+	# echo $i; # checking
+
+	echo "---------- File name: $(basename $i)  ----------";
+	printf "\n";
+
+
+	echo " First 20 lines (first 5 reads)";
+	printf "\n";
+
+	zcat $i | head -n 20
+
+	printf "\n";
+	echo "-------------------";
+        printf "\n";
+
+	echo "First 8bp of the first 125k reads (should correspond to 8nt barcodes), sorted and counted, then sorted by highest counts first, and the top 50 of these";
+        printf "\n";
+
+	zcat $i | head -n 500000 | sed -n '2~4p' | cut -c 1-8 | sort | uniq -c | sort -nr | head -n 50
+
+	printf "\n";
+        echo "-------------------";
+        printf "\n";
+
+	echo "Nucleotides 9-14 of the first 125k reads (should correspond to SbfI cut site (TGCAGG)), sorted and counted, then sorted by highest counts first, and the top 50 of these";
+        printf "\n";
+
+        zcat $i | head -n 500000 | sed -n '2~4p' | cut -c 9-14 | sort | uniq -c | sort -nr | head -n 50
+
+        printf "\n";
+        echo "-------------------";
+        printf "\n";
+
+	echo "############################################################";
+	printf "\n";
+
+done >> $out_path/raw/troubleshooting_PE_demultiplex.txt
+	
+
+	
+
+
+
+

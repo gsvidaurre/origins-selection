@@ -23,8 +23,8 @@ X <- c("tidyverse", "pbapply")
 invisible(lapply(X, library, character.only = TRUE))
 
 # Switch to working on MYIOPSITTA, copied the .csv from this folder over
-# path <- "/home/owner/Desktop/MANUSCRIPTS/Origins&Selection/DATA/Metadata_Barcodes"
-path <- "/media/owner/MYIOPSITTA/R/Origins&Selection/barcodes"
+# path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/barcodes"
 
 ```
 
@@ -42,13 +42,14 @@ From the manual: "The barcode file is a very simple format — one barcode per l
 
 Make a barcode file for Stacks::process_radtags per single-end and paired-end sets of libraries. These .txt files should be tab spaced.
 
-Single-end libraries.
+Updated the code 19 May 2020 to include the "GG" prefix to all paired-end barcodes (arising from ligation during BestRAD protocol).
 ```{r echo = TRUE, eval = TRUE}
 
 seq_type <- c("Single-end", "Paired-end")
 seq_abb <- c("SE", "PE")
 
 # x <- 1
+# i <- 2
 invisible(pblapply(1:length(seq_type), function(i){
   
   tmp_df <- meta_dats %>%
@@ -71,9 +72,20 @@ invisible(pblapply(1:length(seq_type), function(i){
     fileConn <- file(file.path(path, paste(seq_abb[i], "_barcodes_library", libs[x], ".txt", sep = "")))
   
     barcodes <- tmp_df2 %>%
+      mutate(
+        Barcode_Sequence = as.character(Barcode_Sequence)
+      ) %>%
       pull(Barcode_Sequence)
     
+    # If on paired-end libraries, add the "GG" prefix to barcodes
+    if(seq_type[i] == "Paired-end"){
+      barcodes <- paste("GG", barcodes, sep = "")
+    }
+    
     sample_nms <- tmp_df2 %>%
+      mutate(
+        Sample_Name = as.character(Sample_Name)
+      ) %>%
       pull(Sample_Name)
     
     writeLines(paste(barcodes, sample_nms, sep = "\t"), fileConn)
