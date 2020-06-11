@@ -1,0 +1,20 @@
+#!/bin/bash
+# G.Smith-Vidaurre
+# 03 June 2020
+
+# Purpose: Filter the paired-end libraries for PCR clones
+
+src=/media/owner/MYIOPSITTA/R/Origins_Selection/samples/paired_end_2019
+out_path=/media/owner/MYIOPSITTA/R/Origins_Selection/clone_filter
+
+# Get the first file in each pair
+files=`for i in $src; do
+        find $i*/ -type f -iname "*[[:upper:]].1.fq.gz";
+done`
+
+# Specify either a path (not working) or a set of paired end files, but not both
+# Run the for loop using array indices to pull out the first and second files in each pair per sample
+for i in $files; do
+	# echo ${i%%.*}.2.fq.gz; # checking
+	/usr/local/bin/clone_filter -1 ${i%%.*}.1.fq.gz -2 ${i%%.*}.2.fq.gz -o $out_path -i gzfastq -D;
+done

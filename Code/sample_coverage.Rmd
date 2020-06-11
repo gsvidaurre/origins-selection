@@ -1,0 +1,642 @@
+---
+title: "Sample coverage after process_radtags"
+author: "Grace Smith-Vidaurre"
+date: "June 10, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Get sample coverage after running Stacks::process_radtags per library. Coverage should be reported in the manuscript, and will also be used to optimize the Stacks pipeline components that identify alleles and loci, and merge loci into a de novo catalog.
+
+Clean environment, load packages, set path.
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "openxlsx", "forcats")
+
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to the process_radtags log files
+log_pathSE <- "/media/owner/MYIOPSITTA/R/Origins_Selection/samples/single_end_2015"
+log_pathPE <- "/media/owner/MYIOPSITTA/R/Origins_Selection/samples/paired_end_2019"
+
+# Path for writing out graphics
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Read in process_radtag logs and combine into a single data frame. Four log files total: 2 sequencing types with 2 libraries each. In the process, also get the total number of retained reads per library, to facilitate calculating relative sample coverage.
+```{r echo = TRUE, eval = TRUE}
+
+# Get the log file names and paths
+log_paths <- c(log_pathSE, log_pathPE)
+log_files <- unlist(lapply(1:length(log_paths), function(x){
+  list.files(log_paths[x], pattern = ".log$", full.names = TRUE)
+}))
+log_files
+
+# Iterate over log files to get the total number of retained reads per library
+total_reads_df <- rbindlist(pblapply(1:length(log_files), function(i){
+  
+  # Either line 10 or 11 contains the retained reads after completion of process_radtags
+  log_tmp <- readLines(log_files[i], 11)
+  
+  # Search for the pattern "Retained Reads" in the lines just read in
+  log_tmp <- log_tmp[grep("Retained Reads\t[0-9]+", log_tmp)]
+  
+  # Split the text on this line to get the number of reads
+  num_reads <- strsplit(log_tmp, split = "Retained Reads\t")[[1]][2]
+  
+  # Get the sequencing type
+  seq_type <- strsplit(log_files[i], split = "/")[[1]][8]
+  seq_type <- gsub("_", "-", seq_type)
+  
+  # Get the library name
+  lib <- strsplit(strsplit(log_files[i], split = "/")[[1]][9], split = "\\.")[[1]][2]
+  
+  # Return a data frame with this info combined
+  return(data.frame(seq_type = seq_type, lib_name = lib, total_retained_reads = num_reads))
+  
+}))
+
+total_reads_df
+
+```
+
+Read in the log files without headers, and return retained reads per sample.
+```{r echo = TRUE, eval = TRUE}
+
+# i <- 1
+# z <- 1
+sample_reads_df <- rbindlist(pblapply(1:length(log_files), function(i){
+  
+  # Either line 10 or 11 contains the retained reads after completion of process_radtags
+  log_tmp <- readLines(log_files[i])
+  
+  # Get the starting line from which to get sample info
+  # Search for the pattern "Retained Reads" in the lines just read in
+  # This is the last line of the header. The sample info follows after an empty line, and then a header. The retained reads per sample are in the 6th (last) field per row
+  n <- grep("Retained Reads\t[0-9]+", log_tmp) + 3
+  
+  # Get the final line from which to get sample info
+  # Search for the pattern "Sequences not recorded", there is a blank line before this and before that, the last line of the sample info
+  n2 <- grep("Sequences not recorded", log_tmp) - 2
+  
+  log_tmp <- log_tmp[c(n:n2)]
+  # head(log_tmp) # looks good
+  
+  # Iterate over lines in the log file, one per sample
+  tmp_df <- rbindlist(pblapply(1:length(log_tmp), function(z){
+    
+    # Split the text on this line to get the sample name in the 2nd field
+    sample_nm <- strsplit(log_tmp[z], split = "\t")[[1]][2]
+  
+    # Split the text on this line to get the number of reads in the 6th field
+    num_reads <- strsplit(log_tmp[z], split = "\t")[[1]][6]
+  
+    # Get the sequencing type
+    seq_type <- strsplit(log_files[i], split = "/")[[1]][8]
+    seq_type <- gsub("_", "-", seq_type)
+  
+    # Get the library name
+    lib <- strsplit(strsplit(log_files[i], split = "/")[[1]][9], split = "\\.")[[1]][2]
+  
+    # Return a data frame with this info combined
+    return(data.frame(seq_type = seq_type, lib_name = lib, Sample_Name = sample_nm, retained_reads = num_reads))
+  
+  }))
+  
+  return(tmp_df)
+  
+}))
+
+glimpse(sample_reads_df)
+head(sample_reads_df)
+
+# Check out numbers of rows (samples) per seq type and library
+table(sample_reads_df$seq_type, sample_reads_df$lib_name)
+
+# Does this match the metatda? Yes, looks good
+# nrow(meta_dats)
+table(meta_dats$Sequencing_Type, meta_dats$Library_Plate)
+      
+```
+
+Add 1 new column to the sample metadata: reads retained after process_radtags, which will then be plotted to check out the relative sample coverage.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats2 <- meta_dats %>%
+  # Remove the sample name check column
+  dplyr::select(-c(Sample_Name_check)) %>%
+  # Join with the sample reads data frame generated above
+  inner_join(
+    sample_reads_df %>%
+      dplyr::select(c(Sample_Name, retained_reads)),
+    by = "Sample_Name"
+  ) %>%
+  rename(
+    Retained_reads = retained_reads
+  ) %>%
+  mutate(
+    Retained_reads = as.numeric(as.character(Retained_reads))
+  )
+glimpse(meta_dats2)
+
+```
+
+Write out this .csv.
+```{r echo = TRUE, eval = FALSE}
+
+write.xlsx(meta_dats2, file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+
+```
+
+Read the .csv back in and plot sample reads to get a sense of relative coverage distribution per sequencing type.
+```{r echo = TRUE, eval = FALSE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+
+# Single-end libraries
+
+brks <- seq(0, 15000000, 1000000)
+
+meta_dats %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  droplevels() %>%
+  # Order the data frame by increasing number of reads
+  dplyr::arrange(Retained_reads) %>%
+  # Make the sample names into a factor variable with levels in the same order as the current data frame
+  # Should plot samples in order of increasing reads
+  dplyr::mutate(
+    Sample_Name = factor(Sample_Name),
+    Sample_Name = fct_inorder(Sample_Name)
+  ) %>%
+  ggplot(aes(y = Sample_Name, x = Retained_reads)) +
+  geom_point() +
+  scale_x_continuous(limits = c(0, 15000000), breaks = brks) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 10),
+    axis.text.x = element_text(size = 8, angle = 25, hjust = 1),
+    axis.text.y = element_text(size = 6)
+  )
+
+ggsave(file.path(gpath, "Single_end_cleaned_read_numbers.jpeg"), units = "in", width = 8, height = 10.5, dpi = 300)
+
+# Paired-end libraries
+
+brks <- seq(0, 50000000, 5000000)
+
+meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  droplevels() %>%
+  # Order the data frame by increasing number of reads
+  dplyr::arrange(Retained_reads) %>%
+  # Make the sample names into a factor variable with levels in the same order as the current data frame
+  # Should plot samples in order of increasing reads
+  dplyr::mutate(
+    Sample_Name = factor(Sample_Name),
+    Sample_Name = fct_inorder(Sample_Name)
+  ) %>%
+  ggplot(aes(y = Sample_Name, x = Retained_reads)) +
+  geom_point() +
+  scale_x_continuous(limits = c(0, 50000000), breaks = brks) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 10),
+    axis.text.x = element_text(size = 8, angle = 25, hjust = 1),
+    axis.text.y = element_text(size = 6)
+  )
+
+ggsave(file.path(gpath, "Paired_end_cleaned_read_numbers.jpeg"), units = "in", width = 8, height = 10.5, dpi = 300)
+
+```
+
+Zoom in on samples with lower coverage (<= 1.5 million reads).
+```{r echo = TRUE, eval = FALSE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+
+# Single-end libraries
+
+brks <- seq(0, 1500000, 100000)
+
+meta_dats %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  # Drop samples with <= 1.5 million reads
+  filter(Retained_reads <= 1500000) %>%
+  droplevels() %>%
+  # Order the data frame by increasing number of reads
+  dplyr::arrange(Retained_reads) %>%
+  # Make the sample names into a factor variable with levels in the same order as the current data frame
+  # Should plot samples in order of increasing reads
+  dplyr::mutate(
+    Sample_Name = factor(Sample_Name),
+    Sample_Name = fct_inorder(Sample_Name)
+  ) %>%
+  ggplot(aes(y = Sample_Name, x = Retained_reads)) +
+  geom_point() +
+  scale_x_continuous(limits = c(0, 1500000), breaks = brks) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = 25, hjust = 1),
+    axis.text.y = element_text(size = 10)
+  )
+
+ggsave(file.path(gpath, "Single_end_cleaned_lower_read_numbers.jpeg"), units = "in", width = 8, height = 10.5, dpi = 300)
+
+
+# Paired-end libraries
+
+brks <- seq(0, 1500000, 100000)
+
+meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  # Drop samples with <= 1.5 million reads
+  filter(Retained_reads <= 1500000) %>%
+  droplevels() %>%
+  # Order the data frame by increasing number of reads
+  dplyr::arrange(Retained_reads) %>%
+  # Make the sample names into a factor variable with levels in the same order as the current data frame
+  # Should plot samples in order of increasing reads
+  dplyr::mutate(
+    Sample_Name = factor(Sample_Name),
+    Sample_Name = fct_inorder(Sample_Name)
+  ) %>%
+  ggplot(aes(y = Sample_Name, x = Retained_reads)) +
+  geom_point() +
+  scale_x_continuous(limits = c(0, 1500000), breaks = brks) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 12),
+    axis.text.x = element_text(size = 10, angle = 25, hjust = 1),
+    axis.text.y = element_text(size = 10)
+  )
+
+ggsave(file.path(gpath, "Paired_end_cleaned_lower_read_numbers.jpeg"), units = "in", width = 8, height = 10.5, dpi = 300)
+
+```
+
+Make a list of samples that should be dropped in subsequent analyses. To do this, I checked out read numbers in the image files "Single_end_cleaned_lower_read_numbers.jpeg" and "Paired_end_cleaned_lower_read_numbers.jpeg".
+
+In the single-end libraries, the sample with the lowest number of reads was SE_lib2_INV_CNCT_L06_CTGGTT, with just under 100,000 reads. This sample should be dropped due to very low coverage, but will retain all others.
+
+In the paired-end libraries, there are 3 samples with few reads. The sample with the lowest read number is PE_lib1_INV_WASH_WA2_TGGAACAA, with about 50,000 reads. Will drop this sample from downstream analyses. The next two samples, PE_lib1_NAT_ERIO_94-18_GCCAAGAC and PE_lib1_NAT_ERIO_94-55_AACGTGAT, have abut 250,000 reads each. I will not drop these, because these two samples are from Entre Rios, Argentina and we have few samples from this area in our libraries. But keep in mind that genotypes from these samples may need to be taken with a grain of salt.
+
+Check that whether the two samples to be dropped were positive controls?? If so, then need to groundtruth before dropping.
+```{r echo = TRUE, eval = FALSE}
+
+drop_samps <- c("SE_lib2_INV_CNCT_L06_CTGGTT", "PE_lib1_INV_WASH_WA2_TGGAACAA")
+
+# Exact read numbers per sample
+meta_dats %>%
+  filter(Sample_Name %in% drop_samps) %>%
+  pull(Retained_reads)
+
+# 84381 and 45206 reads, respectively.
+
+# The WASH sample was not a positive control for the 2019 libraries (e.g. not run in duplicate)
+meta_dats %>%
+  filter(Sample_Name %in% drop_samps) %>%
+  pull(Positive_Control_2019)
+
+# The CNCT sample was not a positive control across libraries made in different years, but the WASH sample was (e.g. run in both the single-end 2015 and paired-end 2019 libraries)
+meta_dats %>%
+  filter(Sample_Name %in% drop_samps) %>%
+  pull(Positive_Control_AcrossYears)
+
+# How many positive controls are there across years (e.g sequencing types)?
+meta_dats %>%
+  filter(Positive_Control_AcrossYears == "Y") %>%
+  mutate(
+    common_sample_name = sapply(1:nrow(.), function(i){
+      paste(
+        strsplit(Sample_Name[i], split = "_")[[1]][3],
+        strsplit(Sample_Name[i], split = "_")[[1]][4],
+        strsplit(Sample_Name[i], split = "_")[[1]][5],
+        sep = "_"
+      )
+    })
+  ) %>%
+  pull(common_sample_name) %>%
+  unique()
+
+```
+
+There were 66 positive controls between the 2015 and 2019 libraries, so it's ok to drop the WASH sample above from the PE libraries due to very low read numbers.
+
+Choose samples for Stacks optimization per sequencing type.
+
+Single-end libraries.
+```{r echo = TRUE, eval = FALSE}
+
+drop_samps <- c("SE_lib2_INV_CNCT_L06_CTGGTT", "PE_lib1_INV_WASH_WA2_TGGAACAA")
+
+# Get the range of coverage per library, and break this up into a range of 12 even intervals
+# Check out geographic representation across coverage intervals
+# Then take 1 or more samples per coverage interval while evenly taking samples from geogrpahic regions
+
+# Make sure to drop the 2 low coverage samples first
+meta_dats_SE <- meta_dats %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  filter(!Sample_Name %in% drop_samps) %>%
+  droplevels()
+
+# Single-end libraries
+SE_num_reads <- meta_dats_SE %>%
+  pull(Retained_reads)
+
+range(SE_num_reads)
+
+# Generate a dozen even breaks across the read numbers for single-end libraries
+intvls <- 12
+buf <- 1000
+brks <- ceiling(seq(0, max(SE_num_reads) + buf, (max(SE_num_reads) + buf)/intvls))
+brks
+
+# Assign the read numbers for single-end libraries into these intervals
+cuts <- cut(SE_num_reads, brks, include.lowest = FALSE, right = FALSE, labels = FALSE)
+cuts
+
+length(cuts) == nrow(meta_dats_SE)
+  
+# Add the cut intervals back to the data frame
+meta_dats_SE <- meta_dats_SE %>%
+  dplyr::mutate(
+    interval = factor(cuts)
+  )
+glimpse(meta_dats_SE)
+
+# How many intervals had samples?
+meta_dats_SE %>%
+  pull(interval) %>%
+  unique() %>%
+  length()
+
+# 8 intervals  
+
+# Check out the number of indviduals and geographic sampling per interval
+meta_dats_SE %>%
+  group_by(interval) %>%
+  dplyr::summarise(n_indivs = n_distinct(Sample_Name))
+
+# Check out the geographic sampling per interval
+meta_dats_SE %>%
+  group_by(interval) %>%
+  dplyr::summarise(n_regions = n_distinct(Region))
+
+# Check out number of individuals per region per interval
+View(meta_dats_SE %>%
+  group_by(interval, Region) %>%
+  dplyr::summarise(n_indivs = n_distinct(Sample_Name)))
+
+```
+
+Since only 8 intervals had samples in the SE libraries, can pick 8 individuals per interval, and then an additional 4 from intervals with more individuals.
+```{r echo = TRUE, eval = FALSE}
+
+# A dozen individuals, split over the coverage intervals and representing all geographic regions as evenly as possible
+
+# 1: 1 Northern Argentina, 1 Southern US
+# 2: 1 Northern Argentina, 1 Southern Argentina
+# 3: 1 Northern Argentina, 1 Spain
+# 4: 1 Southern Argentina, 1 Southern US
+# 5: 1 Spain
+# 6: 1 Northern US (only 1 sample)
+# 8: 1 Northern US (only 1 sample)
+# 12: 1 Northern US (only 1 sample)
+
+# Ideally, some of the individuals chosen should also be positive controls across sequencing types
+
+# Sample names per interval, in same geographic order as above
+
+# 1: SE_lib1_NAT_BAZO_4_CACCTC, SE_lib2_INV_FLOR_C86_GAAATG
+# 2: SE_lib1_NAT_BAZO_1_TACGGG, SE_lib1_NAT_ALGA_33_AGCCAT
+# 3: SE_lib1_NAT_ERIO_94-02_CGTGAT, SE_lib1_INV_GRCA_5_ATGCAC
+# 4: SE_lib1_NAT_LURO_Verde-1I_CGGTCC, SE_lib2_INV_FLOR_E13_GCAGAT
+# 5: SE_lib1_INV_MALL_37_TTATGA
+# 6: SE_lib1_INV_CNCT_L97_TAATTC
+# 8: SE_lib1_INV_CNCT_L41_GCGACC
+# 12: SE_lib1_INV_CNCT_L38_GCCGTA
+
+# View(meta_dats_SE %>%
+       # filter(interval == 1) %>%
+       # dplyr::select(Sample_Name, Region))
+
+SE_optim <- c(
+  "SE_lib1_NAT_BAZO_4_CACCTC", "SE_lib2_INV_FLOR_C86_GAAATG",
+  "SE_lib1_NAT_BAZO_1_TACGGG", "SE_lib1_NAT_ALGA_33_AGCCAT",
+  "SE_lib1_NAT_ERIO_94-02_CGTGAT", "SE_lib1_INV_GRCA_5_ATGCAC",
+  "SE_lib1_NAT_LURO_Verde-1I_CGGTCC", "SE_lib2_INV_FLOR_E13_GCAGAT",
+  "SE_lib1_INV_MALL_37_TTATGA",
+  "SE_lib1_INV_CNCT_L97_TAATTC",
+  "SE_lib1_INV_CNCT_L41_GCGACC",
+  "SE_lib1_INV_CNCT_L38_GCCGTA"
+  )
+
+```
+
+Paired-end libraries.
+```{r echo = TRUE, eval = FALSE}
+
+drop_samps <- c("SE_lib2_INV_CNCT_L06_CTGGTT", "PE_lib1_INV_WASH_WA2_TGGAACAA")
+
+# Get the range of coverage per library, and break this up into a range of 12 even intervals
+# Check out geographic representation across coverage intervals
+# Then take 1 sample per coverage interval while evenly taking samples from geogrpahic regions
+
+# Make sure to drop the 2 low coverage samples first
+meta_dats_PE <- meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  filter(!Sample_Name %in% drop_samps) %>%
+  droplevels()
+
+# Single-end libraries
+PE_num_reads <- meta_dats_PE %>%
+  pull(Retained_reads)
+
+range(PE_num_reads)
+
+# Generate a dozen even breaks across the read numbers for single-end libraries
+intvls <- 12
+buf <- 1000
+brks <- ceiling(seq(0, max(PE_num_reads) + buf, (max(PE_num_reads) + buf)/intvls))
+brks
+
+# Assign the read numbers for single-end libraries into these intervals
+cuts <- cut(PE_num_reads, brks, include.lowest = FALSE, right = FALSE, labels = FALSE)
+cuts
+
+length(cuts) == nrow(meta_dats_PE)
+  
+# Add the cut intervals back to the data frame
+meta_dats_PE <- meta_dats_PE %>%
+  dplyr::mutate(
+    interval = factor(cuts)
+  )
+glimpse(meta_dats_PE)
+
+# How many intervals had samples?
+meta_dats_PE %>%
+  pull(interval) %>%
+  unique() %>%
+  length()
+
+# 8 intervals  
+
+# Check out the number of indviduals and geographic sampling per interval
+meta_dats_PE %>%
+  group_by(interval) %>%
+  dplyr::summarise(n_indivs = n_distinct(Sample_Name))
+
+# Check out the geographic sampling per interval
+meta_dats_PE %>%
+  group_by(interval) %>%
+  dplyr::summarise(n_regions = n_distinct(Region))
+
+# Check out number of individuals per region per interval
+View(meta_dats_PE %>%
+  group_by(interval, Region) %>%
+  dplyr::summarise(n_indivs = n_distinct(Sample_Name)))
+
+```
+
+Since only 8 intervals had samples in the PE libraries, can pick 8 individuals per interval, and then an additional 4 from intervals with more individuals.
+```{r echo = TRUE, eval = FALSE}
+
+# A dozen individuals, split over the coverage intervals and representing all geographic regions as evenly as possible
+
+# 1: 1 Northern Argentina, 1 South Central Uruguay, 1 Spain
+# 2: 1 Northern United States, 1 Southern United States, 1 Spain
+# 3: 1 Southern Argentina
+# 4: 1 Southern Argentina,
+# 5: 1 Southwestern Uruguay (just 1 sample)
+# 6: 1 Northern Argentina (just 1 sample)
+# 7: 1 Southwestern Uruguay (just 1 sample)
+# 12: 1 Southwestern Uruguay (just 1 sample)
+
+# Ideally, some of the individuals chosen should also be positive controls across sequencing types
+
+# Sample names per interval, in same geographic order as above
+
+# 1: PE_lib1_NAT_BAZO_4_AACAACCA (pos control), PE_lib1_NAT_BCAR_NMSU-279_AGTCAAGC, PE_lib1_INV_MALL_37_GCTAACGA (pos control)
+# 2: PE_lib2_INV_CNCT_L77_CCTCCTGA, PE_lib2_INV_FLOR_C94_ACATTGGC, PE_lib1_INV_MADR_B10_AAACATCG
+# 3: PE_lib2_NAT_LURO_M-3H-Yc_AAACATCG
+# 4: PE_lib2_NAT_LURO_M-2x-Ye_GATAGACA
+# 5: PE_lib2_NAT_ELGE_NMSU-206_CGCATACA
+# 6: PE_lib2_NAT_ERIO_93-41_GCCACATA
+# 7: PE_lib1_NAT_1145_NMSU-256_CAACCACA
+# 12: PE_lib2_NAT_ELGE_NMSU-208_CCGTGAGA
+
+# View(meta_dats_PE %>%
+       # filter(interval == 12) %>%
+       # dplyr::select(Sample_Name, Region))
+
+PE_optim <- c(
+  "PE_lib2_NAT_ELGE_NMSU-208_CCGTGAGA", "PE_lib1_NAT_BCAR_NMSU-279_AGTCAAGC", "PE_lib1_INV_MALL_37_GCTAACGA",
+  "PE_lib2_INV_CNCT_L77_CCTCCTGA", "PE_lib2_INV_FLOR_C94_ACATTGGC", "PE_lib1_INV_MADR_B10_AAACATCG",
+  "PE_lib2_NAT_LURO_M-3H-Yc_AAACATCG",
+  "PE_lib2_NAT_LURO_M-2x-Ye_GATAGACA",
+  "PE_lib2_NAT_ELGE_NMSU-206_CGCATACA",
+  "PE_lib2_NAT_ERIO_93-41_GCCACATA",
+  "PE_lib1_NAT_1145_NMSU-256_CAACCACA",
+  "PE_lib2_NAT_ELGE_NMSU-208_CCGTGAGA"
+  )
+
+```
+
+Use the individuals in the SE_optim and PE_optim objects to optimize Stacks (ustacks, cstacks).
+
+Make a population map per SE and PE library that will be used for Stacks optimization. The population maps should have two columns: 1) the sample name (prefix, no extension) and 2) integer or string indicating population. Here, I will use regions as populations, since this is how I chose samples for optimization.
+
+Only include the individuals chosen for optimization. Prior to running this, I created the directory "info" in "/media/owner/MYIOPSITTA/R/Origins_Selection", and moved the directory "barcodes" inside this directory. I wrote out the population map files to the "info" directory.
+```{r echo = TRUE, eval = FALSE}
+
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_SE_optim.txt"))
+
+file_nm <- file.path(map_path, "popmap_SE_optim.txt")
+
+# Iterate over individuals to write out lines to this file
+invisible(pblapply(1:length(SE_optim), function(i){
+  
+  reg <- meta_dats %>%
+    filter(Sample_Name == SE_optim[i]) %>%
+    pull(Region)
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # Had to add the suffix .fil for denovo_map.pl to recognize the kmer_filter output files (.fil.fq)
+  if(i != length(SE_optim)){
+    tmp_line <- paste(paste(paste(SE_optim[i], ".fil", sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(SE_optim[i], ".fil", sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Open the file in Vim to doublecheck structure, looks good
+
+```
+
+```{r echo = TRUE, eval = FALSE}
+
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_PE_optim.txt"))
+
+file_nm <- file.path(map_path, "popmap_PE_optim.txt")
+
+# Iterate over individuals to write out lines to this file
+invisible(pblapply(1:length(PE_optim), function(i){
+  
+  reg <- meta_dats %>%
+    filter(Sample_Name == PE_optim[i]) %>%
+    pull(Region)
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  if(i != length(PE_optim)){
+    tmp_line <- paste(paste(paste(PE_optim[i], ".fil", sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(PE_optim[i], ".fil", sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Open the file in Vim to doublecheck structure, looks good
+
+```
+
+Once you've finished the optimization runs, and start the full Stacks runs, individuals to be dropped can be removed from Stacks analyses by commenting out their lines in the population map with a ‘#’ character.

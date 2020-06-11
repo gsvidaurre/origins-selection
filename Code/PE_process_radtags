@@ -7,16 +7,13 @@
 src=/media/owner/MYIOPSITTA/R/Origins_Selection/raw/paired_end_2019
 out_path=/media/owner/MYIOPSITTA/R/Origins_Selection
 
-# Using the -1 and -2 flags because the files don't follow an Illumina naming scheme. Dropped the -p flag because cannot have this as well
-# --inline_inline yielded error about incorrect barcodes, so changing to --inline_null (barcode on only single-end reads in the paired-end library)
-
 # Run process_radtags on library 1
 /usr/local/bin/process_radtags -P \
         -o $out_path/samples/paired_end_2019 -b $out_path/barcodes/PE_barcodes_library1.txt \
-        -e sbfI -r -c -q -D --inline_null -1 $src/lib1/SOMM475_R1_TTAACT.fastq.gz -2 $src/lib1/SOMM475_R3_TTAACT.fastq.gz
+        -e sbfI -r -c -q -D --inline_null -1 $src/lib1/SOMM475_R1_TTAACT.fastq.gz -2 $src/lib1/SOMM475_R3_TTAACT.fastq.gz --bestrad 
 
 # Run process_radtags on library 2
 /usr/local/bin/process_radtags -P \
         -o $out_path/samples/paired_end_2019 -b $out_path/barcodes/PE_barcodes_library2.txt \
-        -e sbfI -r -c -q -D --inline_null -1 $src/lib2/SOMM475_R1_TACTAT.fastq.gz -2 $src/lib2/SOMM475_R3_TACTAT.fastq.gz 
+        -e sbfI -r -c -q -D --inline_null -1 $src/lib2/SOMM475_R1_TACTAT.fastq.gz -2 $src/lib2/SOMM475_R3_TACTAT.fastq.gz --bestrad 
 

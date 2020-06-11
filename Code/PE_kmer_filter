@@ -1,0 +1,20 @@
+#!/bin/bash
+# G.Smith-Vidaurre
+# 04 June 2020
+
+# Purpose: Use kmer abundance patterns to evaluate error rates and repeats in the paired-end libraries. Stacks::clone_filter was run on the paired-end libraries prior to this in order to remove PCR clones
+
+src=/media/owner/MYIOPSITTA/R/Origins_Selection/clone_filter
+out_path=/media/owner/MYIOPSITTA/R/Origins_Selection/kmer_output/paired_end_2019
+
+files=`for i in $src; do
+        find $i*/ -type f -iname "*.1.1.fq.gz";
+done`
+
+for i in $files; do
+	# echo $i; # checking
+
+        # Run kmer_filter on demultiplexed reads, with filtering based on both rare (sequencing or PCR error) and abundant (repetitive loci) k-mers, default k-mer size of 15, no advanced filtering options and no read depth normalization
+	/usr/local/bin/kmer_filter -1 ${i%%.*}.1.1.fq.gz -2 ${i%%.*}.2.2.fq.gz -o $out_path -i gzfastq -D --k_len 15 --rare --abundant;
+
+done
