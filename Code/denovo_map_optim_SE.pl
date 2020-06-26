@@ -17,4 +17,4 @@ log_file=$out_path/denovo_map.oe
 M=1
 
 # -X "populations:-r 0.80" -X "populations:-min_maf 0.05"
-denovo_map.pl --samples $in_path --popmap $popmap -o $out_path -m 3 -M $M -n $M -T 6 -X "populations:-r 0.80" -X "populations:-min_maf 0.05" &> $log_file
+denovo_map.pl --samples $in_path --popmap $popmap -o $out_path -m 3 -M $M -n $M -T 4 -X "populations:-r 0.80" -X "populations:-min_maf 0.05" &> $log_file

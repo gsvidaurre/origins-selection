@@ -1,0 +1,37 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 26 June 2020
+
+## Purpose: Filter the paired-end libraries for PCR clones
+
+#SBATCH --job-name PE_clones
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 16 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --time 1-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## wpass on environmental settings
+
+module load stacks
+
+# Use input files from process_radtags (demultiplexed and quality control processed)
+src=/scratch/gsmithvi/cleaned/process_radtags/paired_end
+out_path=/scratch/gsmithvi/cleaned/clone_filter
+
+
+# Get the first file in each pair
+files=`for i in $src; do
+        find $i*/ -type f -iname "*[[:upper:]].1.fq.gz";
+done`
+
+# Specify either a path (not working) or a set of paired end files, but not both
+# Run the for loop using array indices to pull out the first and second files in each pair per sample
+for i in $files; do
+	# echo ${i%%.*}.2.fq.gz; # checking
+	# Extract the paired and non-paired file names
+	clone_filter -1 ${i%%.*}.1.fq.gz -2 ${i%%.*}.2.fq.gz -o $out_path -i gzfastq -D;
+done
