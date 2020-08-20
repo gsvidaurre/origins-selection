@@ -1,0 +1,309 @@
+---
+title: "Optimizing Stacks"
+author: "Grace Smith-Vidaurre"
+date: "August 16, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Get and visualize sample coverage, the number of polymorphic loci across at least 80% of individuals (r80 loci), and the distribution of the number of SNPs per locus, following Stacks optimization with a subset of individuals per sequencing type on the Discovery supercomputer. The mean coverage per sample is contained in the denovo_map.oe file per optimization run per sequencing type. The first of the latter two metrics can be found in the populations.log:
+
+Line 50: "Kept 86580 loci", "84091 variant sites remained."
+
+The file "populations.log.distribs" has the distribution of the number of SNPs per locus: snps_per_loc_postfilters
+
+Should I have run populations with all samples in a single population? Yes, will need to rerun populations, because otherwise the r80 rule applies per population, which right now isn't meaningful. And from what I remember from earlier analyses, Mike and Andrew recommended running populations with samples as a single population. Just checked and confirmed that this was how I ran populations previously.
+
+Next steps across sequencing types: 
+
+- Get and plot coverage
+- Update population map
+- Start re-running populations across optimization parameters
+- Visualize kmer_filter and clone_filter output
+
+Clean environment, load packages, set path.
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "openxlsx", "viridis")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# General path to log and other output files from Stacks denovo optimization
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/tests_denovo"
+
+# Path for writing out graphics
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+### Coverage
+
+Loop over sequencing types and optimization parameters to get coverage from Stacks optimization.
+```{r echo = TRUE, eval = FALSE}
+
+seq_type <- c("single_end", "paired_end")
+prefix <- c("SE", "PE")
+
+Mn <- seq(1, 8, 1) 
+Mn
+
+cvr_df <- rbindlist(pblapply(1:length(seq_type), function(s){
+  
+  tmp_df <- rbindlist(lapply(1:length(Mn), function(m){
+    
+    # Get the right path and log file
+    tmp_path <- file.path(path, file.path(seq_type[s], paste("stacks_m3_Mn", Mn[m], sep = "")))
+    tmp_log <- readLines(file.path(tmp_path, "denovo_map.oe"))
+    
+    # Search for the lines with sample coverage
+    lns <- tmp_log[grep(paste("^", prefix[s], sep = ""), tmp_log)]
+    
+    # Get sample names and coverage per sample
+    smpls <- sapply(1:length(lns), function(z){
+      gsub(".fil", "", strsplit(lns[z], split = ":")[[1]][1])
+    })
+    
+    cvr <- sapply(1:length(lns), function(z){
+      gsub("[[:space:]]", "", gsub("x", "", strsplit(lns[z], split = ":")[[1]][2]))
+    })
+    
+    return(data.frame(
+      seq_type = seq_type[s],
+      Mn = paste("Mn", Mn[m], sep = ""),
+      sample_name = smpls,
+      coverage = as.numeric(cvr)
+    ))
+    
+  }))
+  
+  return(tmp_df)
+  
+}))
+
+glimpse(cvr_df)
+
+# cvr_df %>%
+  # View()
+
+```
+
+Visualize coverage. Coverage seems pretty robust to different parameters.
+```{r echo = TRUE, eval = TRUE}
+
+cvr_df %>%
+  ggplot(aes(x = Mn, y = coverage)) +
+  geom_boxplot() +
+  facet_wrap(~ seq_type) + 
+  theme_bw()
+
+```
+
+### Polymorphic loci (r80 loci)
+
+Get the number of polymorphic loci across at least 80% of individuals (r80 loci) from the populations.log per sequencing type and optimization run. Loop over sequencing types and optimization parameters to get number of r80 loci from Stacks optimization.
+```{r echo = TRUE, eval = TRUE}
+
+seq_type <- c("single_end", "paired_end")
+pat <- c("all/variant/polymorphic sites:")
+
+Mn <- seq(1, 8, 1) 
+Mn
+
+r80_df <- rbindlist(pblapply(1:length(seq_type), function(s){
+  
+  tmp_df <- rbindlist(lapply(1:length(Mn), function(m){
+    
+    # Get the right path and log file
+    tmp_path <- file.path(path, file.path(seq_type[s], paste("stacks_m3_Mn", Mn[m], sep = "")))
+    tmp_log <- readLines(file.path(tmp_path, "populations.log"))
+    
+    # Search for the lines with the number of total loci, and polymorphic loci shared by at least 80% of individuals
+    lns <- tmp_log[grep(pat, tmp_log)]
+    
+    # Get total, variant, and polymorphic loci 
+    metrix <- as.numeric(strsplit(strsplit(strsplit(lns, ";")[[1]][3], ": ")[[1]][2], "/")[[1]])
+    
+    return(data.frame(
+      seq_type = seq_type[s],
+      Mn = paste("Mn", Mn[m], sep = ""),
+      total = metrix[1],
+      variant = metrix[2],
+      polymorphic = metrix[3]
+    ))
+    
+  }))
+  
+  return(tmp_df)
+  
+}))
+
+glimpse(r80_df)
+
+```
+
+Visualize numbers of loci returned that were shared across at least 80% of individuals. Since the numbers reported for "variants" and "polymorphic" sites are exactly the same, I used just polymorphic sites below.
+```{r echo = TRUE, eval = TRUE}
+
+r80_df %>%
+  pivot_longer(
+    cols = c("total", "variant", "polymorphic"),
+    names_to = "metric",
+    values_to = "values"
+  ) %>%
+  filter(metric != "variant") %>%
+  dplyr::mutate(
+    metric = factor(metric, levels = c("total", "polymorphic"))
+  ) %>%
+  ggplot(aes(x = Mn, y = values)) +
+  geom_point() +
+  facet_wrap(~ seq_type + metric, scales = "free_y") + 
+  theme_bw()
+
+```
+
+These plots show a pretty drastic increase in the number of total and polymorphic loci identified from around Mn = 1 and Mn = 2 to Mn = 3 and Mn = 4. This is true for both sequencing types, and following a peak around Mn = 4 or Mn = 5, values plateau for single-end libraries and slighlt decline for paired-end libraries. 
+
+### SNP distribution per locus
+
+Next, get the distribution of the number of SNPs per locus from the file "populations.log.distribs". Loop over sequencing types and optimization parameters.
+```{r echo = TRUE, eval = TRUE}
+
+seq_type <- c("single_end", "paired_end")
+pat <- c("snps_per_loc_postfilters")
+
+Mn <- seq(1, 8, 1) 
+Mn
+
+spl_df <- rbindlist(pblapply(1:length(seq_type), function(s){
+  
+  tmp_df <- rbindlist(lapply(1:length(Mn), function(m){
+    
+    # Get the right path and log file
+    tmp_path <- file.path(path, file.path(seq_type[s], paste("stacks_m3_Mn", Mn[m], sep = "")))
+    tmp_log <- readLines(file.path(tmp_path, "populations.log.distribs"))
+    
+    # Search for the lines with the distribution of the number of SNPs per locus
+    lns <- tmp_log[grep(paste("BEGIN", pat, sep = " "), tmp_log): grep(paste("END", pat, sep = " "), tmp_log)]
+    
+    lns <- lns[(grep("n_snps", lns) + 1):(length(lns) -1)]
+    
+    df <- rbindlist(lapply(1:length(lns), function(i){
+      data.frame(n_snps = strsplit(lns[i], split = "\t")[[1]][1], n_loci = strsplit(lns[i], split = "\t")[[1]][2])
+    }))
+    
+    df <- df %>%
+      dplyr::mutate(
+        seq_type = seq_type[s],
+        Mn = paste("Mn", Mn[m], sep = ""),
+        n_snps = as.numeric(as.character(n_snps)),
+        n_loci = as.numeric(as.character(n_loci))
+      ) %>%
+      dplyr::select(seq_type, Mn, n_snps, n_loci)
+    
+    return(df)
+    
+  }))
+  
+  return(tmp_df)
+  
+}))
+
+glimpse(spl_df)
+
+```
+
+Visualize the distribution of the numbers of SNPs per locus.
+```{r echo = TRUE, eval = TRUE}
+
+cols <- viridis(length(unique(spl_df$Mn)))
+
+spl_df %>%
+  # Merge all n_snp values > 10 for ease of visualization, as in Rochette et al. 2017
+  dplyr::mutate(
+    n_snps = ifelse(n_snps > 10, ">10", n_snps),
+    n_snps = as.character(n_snps),
+    n_snps = factor(n_snps, levels = c(as.character(0:10), ">10")),
+    seq_type = factor(seq_type, levels = c("single_end", "paired_end")) 
+  ) %>%
+  ggplot(aes(x = n_snps, y = n_loci)) +
+  geom_col(aes(fill = Mn), position = position_dodge()) +
+  scale_fill_manual(values = cols) +
+  facet_wrap(~ seq_type) +
+  ylab("Number of loci") +
+  xlab("Number of SNPS") +
+  theme_bw()
+
+```
+
+Visualize the distribution of the numbers of SNPs per locus, now with the proportion of loci on the y-axis (as in Rochette et al. 2017).
+```{r echo = TRUE, eval = TRUE}
+
+spl_df %>%
+  # Get the proportion of loci per n_snps category
+  inner_join(
+    spl_df %>%
+      group_by(seq_type, Mn) %>%
+      dplyr::summarise(total_loci = sum(n_loci)),
+    by = c("seq_type", "Mn")
+  ) %>%
+  dplyr::mutate(
+    perc_loci = round((n_loci/total_loci)*100, 2),
+    seq_type = factor(seq_type, levels = c("single_end", "paired_end")) 
+  ) %>%
+  # Merge all n_snp values > 10 for ease of visualization, as in Rochette et al. 2017
+  dplyr::mutate(
+    n_snps = ifelse(n_snps > 10, ">10", n_snps),
+    n_snps = as.character(n_snps),
+    n_snps = factor(n_snps, levels = c(as.character(0:10), ">10"))
+  ) %>%
+  ggplot(aes(x = n_snps, y = perc_loci)) +
+  geom_col(aes(fill = Mn), position = position_dodge()) +
+  scale_fill_manual(values = cols) +
+  facet_wrap(~ seq_type) +
+  ylab("Percentage of loci") +
+  xlab("Number of SNPS") +
+  theme_bw()
+
+```
+
+There are clear differences in the overall distribution of the number of SNPs per locus between sequencing types, with the paired end libraries demonstrating wider spread of numbers of SNPs across loci, and single end libraries showing fewer SNPs per locus overall. To me this is expected because the single end reads are shorter than the paired end reads.
+
+What's also clear is that the distribution of SNPs across loci is mostly not affected by changes in Mn values, with the exception of lower Mn values (Mn = 1 and 2).
+
+Which Mn values should be used for final Stacks genotyping per sequencing type? The visuals made above should help in deciding, I used the rules of thumb laid out by Rochette et al. 2017 as guidelines.
+
+Single-end libraries:
+  - Number of widely shared polymorphic loci (80% of individuals) plateaus at Mn = 5
+  - Proportions of loci with 1 - 4 SNPs is stable at Mn = 5 (and all Mn values greater than 2)
+  - Coverage is stable at Mn = 5
+  - Therefore, use m = 3 and Mn = 5 for final Stacks genotyping of single-end libraries
+  
+Paired-end libraries:
+  - Number of widely shared polymorphic loci (80% of individuals) reaches max at Mn = 5 and slightly declines thereafter
+  - Proportions of loci with 1 - 5 SNPs is stable at Mn = 5 (and all Mn values greater than 2 as well)
+  - Coverage is stable at Mn = 5
+  - Therefore, use m = 3 and Mn = 5 for final Stacks genotyping of paired-end libraries as well
+
+
+Next steps across sequencing types: 
+
+- Visualize kmer_filter and clone_filter output
+- Start Stacks genotyping runs
+

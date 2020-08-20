@@ -551,7 +551,7 @@ Since only 8 intervals had samples in the PE libraries, can pick 8 individuals p
        # dplyr::select(Sample_Name, Region))
 
 PE_optim <- c(
-  "PE_lib2_NAT_ELGE_NMSU-208_CCGTGAGA", "PE_lib1_NAT_BCAR_NMSU-279_AGTCAAGC", "PE_lib1_INV_MALL_37_GCTAACGA",
+  "PE_lib1_NAT_BAZO_4_AACAACCA", "PE_lib1_NAT_BCAR_NMSU-279_AGTCAAGC", "PE_lib1_INV_MALL_37_GCTAACGA",
   "PE_lib2_INV_CNCT_L77_CCTCCTGA", "PE_lib2_INV_FLOR_C94_ACATTGGC", "PE_lib1_INV_MADR_B10_AAACATCG",
   "PE_lib2_NAT_LURO_M-3H-Yc_AAACATCG",
   "PE_lib2_NAT_LURO_M-2x-Ye_GATAGACA",
@@ -565,7 +565,7 @@ PE_optim <- c(
 
 Use the individuals in the SE_optim and PE_optim objects to optimize Stacks (ustacks, cstacks).
 
-Make a population map per SE and PE library that will be used for Stacks optimization. The population maps should have two columns: 1) the sample name (prefix, no extension) and 2) integer or string indicating population. Here, I will use regions as populations, since this is how I chose samples for optimization.
+Make a population map per SE and PE library that will be used for Stacks optimization. The population maps should have two columns: 1) the sample name (prefix, no extension) and 2) integer or string indicating population. Here, I will place all samples in a single population, since this is how I ran populations in previous analyses (not making assumptions about which "population" per sample, as recommended by Mike Russello and Andrew Veale).
 
 Only include the individuals chosen for optimization. Prior to running this, I created the directory "info" in "/media/owner/MYIOPSITTA/R/Origins_Selection", and moved the directory "barcodes" inside this directory. I wrote out the population map files to the "info" directory.
 ```{r echo = TRUE, eval = FALSE}
@@ -574,15 +574,11 @@ map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
 
 # Remove previous versions
 file.remove(file.path(map_path, "popmap_SE_optim.txt"))
-
 file_nm <- file.path(map_path, "popmap_SE_optim.txt")
+reg <- 1 # a single population
 
 # Iterate over individuals to write out lines to this file
 invisible(pblapply(1:length(SE_optim), function(i){
-  
-  reg <- meta_dats %>%
-    filter(Sample_Name == SE_optim[i]) %>%
-    pull(Region)
   
   # If not on the last individual, write out a new line symbol to start the next sample on a new line
   # Had to add the suffix .fil for denovo_map.pl to recognize the kmer_filter output files (.fil.fq)
@@ -610,21 +606,19 @@ map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
 
 # Remove previous versions
 file.remove(file.path(map_path, "popmap_PE_optim.txt"))
-
 file_nm <- file.path(map_path, "popmap_PE_optim.txt")
+
+reg <- 1 # a single population
 
 # Iterate over individuals to write out lines to this file
 invisible(pblapply(1:length(PE_optim), function(i){
   
-  reg <- meta_dats %>%
-    filter(Sample_Name == PE_optim[i]) %>%
-    pull(Region)
-  
   # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
   if(i != length(PE_optim)){
-    tmp_line <- paste(paste(paste(PE_optim[i], ".fil", sep = ""), reg, sep = "\t"), "\n", sep = "")
+    tmp_line <- paste(paste(PE_optim[i], reg, sep = "\t"), "\n", sep = "")
   } else {
-    tmp_line <- paste(paste(PE_optim[i], ".fil", sep = ""), reg, sep = "\t")
+    tmp_line <- paste(PE_optim[i], reg, sep = "\t")
   }
   
   if(i == 1){

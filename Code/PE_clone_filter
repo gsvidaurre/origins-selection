@@ -1,6 +1,7 @@
 #!/bin/bash
 # G.Smith-Vidaurre
 # 03 June 2020
+# Updated 22 July 2020 while checking out file naming issues
 
 # Purpose: Filter the paired-end libraries for PCR clones
 
@@ -12,9 +13,11 @@ files=`for i in $src; do
         find $i*/ -type f -iname "*[[:upper:]].1.fq.gz";
 done`
 
+# Somehow, file names are messed up in this step
 # Specify either a path (not working) or a set of paired end files, but not both
 # Run the for loop using array indices to pull out the first and second files in each pair per sample
 for i in $files; do
-	# echo ${i%%.*}.2.fq.gz; # checking
-	/usr/local/bin/clone_filter -1 ${i%%.*}.1.fq.gz -2 ${i%%.*}.2.fq.gz -o $out_path -i gzfastq -D;
+	# echo ${i%%.*}.1.fq.gz; # checking
+	echo ${i%%.*}.2.fq.gz; # checking
+	# /usr/local/bin/clone_filter -1 ${i%%.*}.1.fq.gz -2 ${i%%.*}.2.fq.gz -o $out_path -i gzfastq -D;
 done
