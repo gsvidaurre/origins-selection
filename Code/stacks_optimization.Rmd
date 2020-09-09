@@ -19,13 +19,6 @@ The file "populations.log.distribs" has the distribution of the number of SNPs p
 
 Should I have run populations with all samples in a single population? Yes, will need to rerun populations, because otherwise the r80 rule applies per population, which right now isn't meaningful. And from what I remember from earlier analyses, Mike and Andrew recommended running populations with samples as a single population. Just checked and confirmed that this was how I ran populations previously.
 
-Next steps across sequencing types: 
-
-- Get and plot coverage
-- Update population map
-- Start re-running populations across optimization parameters
-- Visualize kmer_filter and clone_filter output
-
 Clean environment, load packages, set path.
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
@@ -173,12 +166,42 @@ r80_df %>%
   ) %>%
   ggplot(aes(x = Mn, y = values)) +
   geom_point() +
+  geom_line(aes(group = 1)) +
   facet_wrap(~ seq_type + metric, scales = "free_y") + 
+  ylab("Number of loci") +
+  xlab("") +
+  theme_bw()
+
+```
+
+How many new polymorphic loci were added with each Mn iteration per sequencing type?
+```{r echo = TRUE, eval = TRUE}
+
+r80_df %>%
+  pivot_longer(
+    cols = c("total", "variant", "polymorphic"),
+    names_to = "metric",
+    values_to = "values"
+  ) %>%
+  filter(metric == "polymorphic") %>%
+  droplevels() %>%
+  # Get the change in numbers of loci from one set of Mn values to the next
+  dplyr::mutate(
+    diff_values = c(0, diff(values))
+  ) %>%
+  ggplot(aes(x = Mn, y = diff_values)) +
+  geom_point() +
+  geom_line(aes(group = 1)) +
+  facet_wrap(~ seq_type, scales = "free_y") + 
+  ylab("Number of new polymorphic loci") +
+  xlab("") +
   theme_bw()
 
 ```
 
 These plots show a pretty drastic increase in the number of total and polymorphic loci identified from around Mn = 1 and Mn = 2 to Mn = 3 and Mn = 4. This is true for both sequencing types, and following a peak around Mn = 4 or Mn = 5, values plateau for single-end libraries and slighlt decline for paired-end libraries. 
+
+Also, the number of new polymorphic loci added begins to stabilize around Mn = 5 per sequencing type.
 
 ### SNP distribution per locus
 
@@ -300,10 +323,11 @@ Paired-end libraries:
   - Proportions of loci with 1 - 5 SNPs is stable at Mn = 5 (and all Mn values greater than 2 as well)
   - Coverage is stable at Mn = 5
   - Therefore, use m = 3 and Mn = 5 for final Stacks genotyping of paired-end libraries as well
-
+  
 
 Next steps across sequencing types: 
 
-- Visualize kmer_filter and clone_filter output
-- Start Stacks genotyping runs
+- Visualize kmer_filter output (in R? GNUplot? don't quite understand how to get kmer frequencies and counts, maybe in the .fil files or something?? I think it's not necessary to run single_end again and save the .oe output, looks like these numbers reported by Paris et al came from summaries of the kmer_filter output files)
+
+See "stacks_genotyping.Rmd" for full population maps and next steps after Stacks optimization.
 

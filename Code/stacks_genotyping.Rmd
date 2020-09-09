@@ -1,0 +1,297 @@
+---
+title: "Stacks Genotyping"
+author: "Grace Smith-Vidaurre"
+date: "August 20, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Make population maps for both sequencing types. All samples will be considered as a single population, and individuals with low coverage should be dropped by commenting out with "#" (see sample_coverage.Rmd). Once done, make denovo_map.pl scripts per sequencing type with the optimized parameters determined above, as well as any other parameters needed per sequencing type, and start Stacks genotyping runs.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "openxlsx", "viridis")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+### Population maps
+
+Place all individuals in population maps per sequencing type. The population maps should have two columns: 1) the sample name (prefix, no extension) and 2) integer or string indicating population. Here, I will place all samples in a single population, since this is how I ran populations in previous analyses (not making assumptions about which "population" per sample, as recommended by Mike Russello and Andrew Veale). Comment out individuals that will be dropped due to low coverage. Write out the population map files to the "info" directory.
+
+Individuals that should be dropped, as determined in sample_coverage.Rmd
+```{r echo = TRUE, eval = TRUE}
+
+drop_samps <- c("SE_lib2_INV_CNCT_L06_CTGGTT", "PE_lib1_INV_WASH_WA2_TGGAACAA")
+
+```
+
+```{r echo = TRUE, eval = FALSE}
+
+se_samps <- meta_dats %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  droplevels() %>%
+  pull(Sample_Name)
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_SE.txt"))
+file_nm <- file.path(map_path, "popmap_SE.txt")
+reg <- 1 # a single population
+
+# Iterate over individuals to write out lines to this file
+invisible(pblapply(1:length(se_samps), function(i){
+  
+  # If the given individual should be dropped, add a # comment symbol prior to the sample name
+  if(se_samps[i] %in% drop_samps) se_samps[i] <- paste("#", se_samps[i], sep = " ")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # Had to add the suffix .fil for denovo_map.pl to recognize the kmer_filter output files (.fil.fq)
+  if(i != length(se_samps)){
+    tmp_line <- paste(paste(paste(se_samps[i], ".fil", sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(se_samps[i], ".fil", sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Open the file in Vim to doublecheck structure, looks good
+# 139 individuals remaining for the single-end sequencing libraries after commenting out one individual
+
+```
+
+```{r echo = TRUE, eval = FALSE}
+
+pe_samps <- meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  droplevels() %>%
+  pull(Sample_Name)
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_PE.txt"))
+file_nm <- file.path(map_path, "popmap_PE.txt")
+
+reg <- 1 # a single population
+
+# Iterate over individuals to write out lines to this file
+invisible(pblapply(1:length(pe_samps), function(i){
+  
+  # If the given individual should be dropped, add a # comment symbol prior to the sample name
+  if(pe_samps[i] %in% drop_samps) pe_samps[i] <- paste("#", pe_samps[i], sep = " ")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+  if(i != length(pe_samps)){
+    tmp_line <- paste(paste(pe_samps[i], reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(pe_samps[i], reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Open the file in Vim to doublecheck structure, looks good
+# 143 individuals remaining for the paired-end sequencing libraries after commenting out one individual
+
+```
+
+Next, make denovo_map.pl scripts per sequencing type on Discovery, with optimized parameters and any parameters specific to each sequencing type. Check options per pipeline component, also check parameters used in earlier Stacks runs.
+
+Next steps after Stacks runs are to get sample coverage, and make new popmaps for HWE calculations. 
+
+Making population maps for HWE calculations. The purpose of the HWE calculations is to identify and remove loci that are out of HWE (either too homozygous or too heterozygous). In order to avoid identifying loci that are out of HWE due to selection, do HWE calculations for > 2 "populations", and only remove loci that are out of HWE in 2 or more of the population contrasts, as these are more likely to represent sequencing error.
+
+For the SE SNPs, I want the population contrasts to be U.S., Spain, native range. For the PE and combined SE/PE SNPs, we have more samples from the native range, so I want the population contrasts to be U.S, Spain, Argentina, Uruguay.   
+
+SE libraries.
+```{r echo = TRUE, eval = FALSE}
+
+se_samps <- meta_dats %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  droplevels() %>%
+  pull(Sample_Name)
+
+# Initialize suffix to go after sample names
+suff <- c(".fil")
+
+# Initialize file name
+file_nm <- file.path(map_path, "popmap_SE_HWE.txt")
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_SE_HWE.txt")
+
+# Iterate over individuals to write out lines to this file
+# i <- 1
+invisible(pblapply(1:length(se_samps), function(i){
+  
+  # Initialize the region for the given sample
+  if(meta_dats$Country[grep(paste(paste("^", se_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Argentina"){
+    reg <- 1 
+  } else if(meta_dats$Country[grep(paste(paste("^", se_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Spain"){
+    reg <- 2
+  } else if(meta_dats$Country[grep(paste(paste("^", se_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "United States"){
+    reg <- 3 
+  }
+  
+  # If the given individual should be dropped, add a # comment symbol prior to the sample name
+  if(se_samps[i] %in% drop_samps) se_samps[i] <- paste("#", se_samps[i], sep = " ")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+  if(i != length(se_samps)){
+    tmp_line <- paste(paste(paste(se_samps[i], suff, sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(se_samps[i], suff, sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Opened the file in Vim to doublecheck structure, looks good
+
+```
+
+PE libraries.
+```{r echo = TRUE, eval = FALSE}
+
+pe_samps <- meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  droplevels() %>%
+  pull(Sample_Name)
+
+# Initialize suffixes to go after sample names
+suff <- c("")
+
+# Initialize file names
+file_nm <- file.path(map_path, "popmap_PE_HWE.txt")
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_PE_HWE.txt"))
+
+# Iterate over individuals to write out lines to this file
+# i <- 1
+invisible(pblapply(1:length(pe_samps), function(i){
+  
+  # Initialize the region for the given sample
+  if(meta_dats$Country[grep(paste(paste("^", pe_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Uruguay"){
+    reg <- 1 
+  } else if(meta_dats$Country[grep(paste(paste("^", pe_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Argentina"){
+    reg <- 2
+  } else if(meta_dats$Country[grep(paste(paste("^", pe_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Spain"){
+    reg <- 3
+  } else if(meta_dats$Country[grep(paste(paste("^", pe_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "United States"){
+    reg <- 4 
+  }
+  
+  # If the given individual should be dropped, add a # comment symbol prior to the sample name
+  if(pe_samps[i] %in% drop_samps) pe_samps[i] <- paste("#", pe_samps[i], sep = " ")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+  if(i != length(pe_samps)){
+    tmp_line <- paste(paste(paste(pe_samps[i], suff, sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(pe_samps[i], suff, sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Opened the file in Vim to doublecheck structure, looks good
+
+```
+
+SE and PE libraries.
+```{r echo = TRUE, eval = FALSE}
+
+all_samps <- meta_dats %>%
+  droplevels() %>%
+  pull(Sample_Name)
+
+# Initialize file names
+file_nm <- file.path(map_path, "popmap_merged_HWE.txt")
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_merged_HWE.txt"))
+
+# Iterate over individuals to write out lines to this file
+# i <- 1
+invisible(pblapply(1:length(all_samps), function(i){
+  
+  # Initialize the region for the given sample
+  if(meta_dats$Country[grep(paste(paste("^", all_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Uruguay"){
+    reg <- 1 
+  } else if(meta_dats$Country[grep(paste(paste("^", all_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Argentina"){
+    reg <- 2
+  } else if(meta_dats$Country[grep(paste(paste("^", all_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "Spain"){
+    reg <- 3
+  } else if(meta_dats$Country[grep(paste(paste("^", all_samps[i], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)] == "United States"){
+    reg <- 4 
+  }
+  
+  # Initialize the suffix to go after the sample name
+  # Use ".1" for the PE reads here, since I used only the forward reads when merging SE and PE libraries
+  suff <- ifelse(grepl("^SE_", all_samps[i]), ".fil.sorted", ".1.sorted")
+  
+  # If the given individual should be dropped, add a # comment symbol prior to the sample name
+  if(all_samps[i] %in% drop_samps) all_samps[i] <- paste("#", all_samps[i], sep = " ")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+  if(i != length(all_samps)){
+    tmp_line <- paste(paste(paste(all_samps[i], suff, sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(all_samps[i], suff, sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Opened the file in Vim to doublecheck structure, looks good as well
+
+```

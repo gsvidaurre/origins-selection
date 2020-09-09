@@ -18,7 +18,7 @@ Clean environment, load packages, set path.
 
 rm(list = ls())
 
-X <- c("tidyverse", "pbapply")
+X <- c("tidyverse", "pbapply", "xlsx")
 
 invisible(lapply(X, library, character.only = TRUE))
 
@@ -31,7 +31,7 @@ path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/barcodes"
 Read in metadata.
 ```{r echo = TRUE, eval = TRUE}
 
-meta_dats <- read.csv(file.path(path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.csv"))
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
 glimpse(meta_dats)
 
 ```
