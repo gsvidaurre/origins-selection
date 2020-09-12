@@ -1,0 +1,503 @@
+---
+title: "HWE filtering"
+author: "Grace Smith-Vidaurre"
+date: "10 September, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Make population maps for both sequencing types. All samples will be considered as a single population, and individuals with low coverage should be dropped by commenting out with "#" (see sample_coverage.Rmd). Once done, make denovo_map.pl scripts per sequencing type with the optimized parameters determined above, as well as any other parameters needed per sequencing type, and start Stacks genotyping runs.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to Stacks output 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+```
+
+Read in the populations.sumstats.tsv files with HWE p-values. Significant p-values (< 0.05) mean a locus was out of equilibrium. Here, search for loci that were out of HWE in 2 population contrasts for the SE SNPs, and 3 populations for the PE and merged SNPs. Convert zeroes to -9999 to indicate missing data, and remove suffixes after sample names.
+
+### SE SNPs
+
+In this .tsv file, the first 3 lines contain the population IDs used for HWE, each followed by all individuals in that population. Then the next line contains column headers, then follow all the lines with data. The population and column header lines all start with "#". Note that each row is actually a locus per population, so each locus is repeated for the given number of populations used in the HWE contrasts.
+```{r echo = TRUE, eval = FALSE}
+
+# Read the first lines of metadata 
+meta <- readLines(file.path(file.path(res_path, "single_end/HWE"), "populations.sumstats.tsv"), n = 4)
+# meta
+
+# Get the populations
+pops <- meta[grep("\tSE", meta)]
+# pops
+
+# Then get the column headers
+col_nms <- meta[grep("# Locus ID", meta)]
+# col_nms
+
+# Split out the column headers into a vector, one element per header
+col_nms <- strsplit(col_nms, split = "\t")[[1]]
+
+# Substitute symbols that will interfere with becoming column headers
+col_nms <- gsub("# ", "", col_nms)
+# col_nms
+
+col_nms <- gsub("[[:space:]]|-", "_", col_nms)
+col_nms
+
+# Get the data lines
+sumstats_se <- read.table(file.path(file.path(res_path, "single_end/HWE"), "populations.sumstats.tsv"), sep = "\t", header = FALSE)
+glimpse(sumstats_se )
+
+# Add back headers
+names(sumstats_se) <- col_nms
+glimpse(sumstats_se)
+
+# Find loci out of HWE using alpha of 0.05
+# Here, create a unique locus ID that contains the locus number plus the basepair of the SNP within the RAD-tag, to facilitate filtering the Structure file below, which has the locus IDs in this format
+# Then summarize the resulting data to find loci present 2 or more times
+HW_disequil <- sumstats_se %>%
+  # Create a new locus ID column
+  dplyr::mutate(
+    # Col is the nucleotide site within the catalog locus, not that this is a zero-based offset, such that the first nucleotide is 0
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  filter(HWE_P_value <= 0.05) %>%
+  droplevels() %>%
+  group_by(locus_bp_ID) %>%
+  dplyr::summarise(
+    n_pops = n_distinct(Pop_ID)
+  ) %>%
+  filter(n_pops > 1) %>%
+  pull(locus_bp_ID)
+
+head(HW_disequil)
+
+# 4326 loci out of HWE
+length(HW_disequil)
+
+# 40129 loci total
+sumstats_se %>%
+  dplyr::mutate(
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  pull(locus_bp_ID) %>%
+  unique() %>%
+  length()
+
+# If the total number of loci from the Stacks::populations run with a single population is the same as the HWE run here, then 35803 loci should remain after removing the HW_disequil loci
+sumstats_se %>%
+  dplyr::mutate(
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  pull(locus_bp_ID) %>%
+  unique() %>%
+  length() - length(HW_disequil)
+
+# Read in the full set of loci obtained from the non-HWE run with all individuals considered in the same population
+# Here using the Structure file output by Stacks, which will be filtered and then used to make Bayescan input files
+# This file has two initial lines of metadata: the first line starts with "#" and contains a tag with the version of Stacks used as well as the date the file was created 
+# Here reading this file in as a table to get the dimensions (two rows per individual because these are diploid, and number of columns is the number of loci)
+struc <- read.table(file.path(file.path(res_path, "single_end"), "populations.structure"), skip = 2)
+# glimpse(struc)
+dim(struc) # 278 rows, 34246 columns
+head(struc[, 1]) # Sample names contained in the first column
+head(struc[, 2]) # Population ID (single population) contained in second column
+
+# The number of loci in this file is not the same as when running Stacks::populations for HWE. This is because the rules given to populations (-r 0.8 for instance) should yield different results when samples are considered as a single or multiple populations. Regardless, can still search for the loci out of HWE in the single populations output file, and remove them if they are present
+
+# Get the column headers
+
+# Read the first lines of metadata 
+meta <- readLines(file.path(file.path(res_path, "single_end"), "populations.structure"), n = 2)
+# meta
+
+# Then get the column headers
+col_nms <- meta[-grep("#", meta)]
+# col_nms
+
+# Split out the column headers into a vector, one element per header
+col_nms <- strsplit(col_nms, split = "\t")[[1]]
+head(col_nms)
+length(col_nms)
+
+# How to filter this data and then write out in Structure format again??
+# Could iterate over each row of the data frame, remove the HWE_disequil loci, then print the filtered tab-separated line (preceded by the sample name) to a new file with the extension .str
+# If proceed with this plan, then will need to print the Structure header (two blank spaces, then loci names, all tab-separated) prior to printing the data lines inside a loop
+names(struc) <- col_nms
+names(struc)[1:2] <- c("indiv", "pop") # Fix the first two column names for the loop below
+glimpse(struc[, 1:10]) # First column contains the sample name, second column is the population identifier
+
+# Filter the genotypes data frame to remove loci in HWE_disequil
+head(HW_disequil)
+head(names(struc))
+
+# Not sure why grep fails here...
+# struc2 <- struc[, -grep(paste(paste("^", HW_disequil, "$", sep = ""), collapse = "|"), names(struc))]
+struc2 <- struc[, -which(names(struc) %in% HW_disequil)]
+dim(struc2) # 278 rows = 139 diploid individuals, 30087 - 2 = 30085 loci remain
+unique(struc2$pop) # A single population
+
+rm(list = "struc") # Remove this object as it takes up memory and won't be used in this format
+
+# Convert all zeroes (missing data) to -9999 (more compatible with Structure)
+# which(struc2 == 0)
+struc2[struc2 == 0] <- -9999
+
+# Filter column names as well
+col_nms2 <- col_nms[-which(col_nms %in% HW_disequil)]
+length(col_nms2)
+
+# Checking, all remaining column names are not in the list of loci that should have been dropped, looks good 
+# all(!names(struc2) %in% HW_disequil)
+# all(!col_nms2 %in% HW_disequil)
+
+# Remove suffixes in sample names
+struc2$indiv <- gsub(".fil", "", as.character(struc2$indiv))
+
+# Create a new Structure file, then proceed with the plan above
+# Opened this file periodically in Vim to doublecheck structure
+# Used :set list in Vim to see invisible characters
+file_nm <- "single_end_HWE_filter.str"
+
+# Remove previous versions
+file.remove(file.path(file.path(res_path, "single_end"), file_nm))
+
+# Initialize the Structure header, with the two tab symbols at the beginning and a new line symbol at the end
+header <- c("\t", "\t", paste(paste(col_nms2[-grep("^$", col_nms2)], collapse = " "), "\n", sep = ""))
+# header
+
+# Print the Structure header
+cat(header, file = file.path(file.path(res_path, "single_end"), file_nm), append = TRUE)
+
+# Print each line of the filtered data frame above
+invisible(pblapply(1:nrow(struc2), function(i){
+
+  cat(c(struc2$indiv[i], "\t", struc2$pop[i], "\t", paste(paste(struc2[i, -grep("^indiv$|^pop$", names(struc2))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "single_end"), file_nm), append = TRUE)
+
+}))
+
+# Opened the file in Vim to check out results, looks great
+rm(list = "struc2")
+
+```
+
+### PE SNPs
+
+4 populations, so 5 lines of metadata. No suffixes to remove in sample names.
+```{r echo = TRUE, eval = FALSE}
+
+# Read the first lines of metadata 
+meta <- readLines(file.path(file.path(res_path, "paired_end/HWE"), "populations.sumstats.tsv"), n = 5)
+# meta
+
+# Get the populations
+pops <- meta[grep("\tPE", meta)]
+# pops
+
+# Then get the column headers
+col_nms <- meta[grep("# Locus ID", meta)]
+col_nms
+
+# Split out the column headers into a vector, one element per header
+col_nms <- strsplit(col_nms, split = "\t")[[1]]
+
+# Substitute symbols that will interfere with becoming column headers
+col_nms <- gsub("# ", "", col_nms)
+col_nms
+
+col_nms <- gsub("[[:space:]]|-", "_", col_nms)
+col_nms
+
+# Get the data lines
+sumstats_pe <- read.table(file.path(file.path(res_path, "paired_end/HWE"), "populations.sumstats.tsv"), sep = "\t", header = FALSE)
+# glimpse(sumstats_pe)
+
+# Add back headers
+names(sumstats_pe) <- col_nms
+glimpse(sumstats_pe[, 1:10])
+
+# Find loci out of HWE using alpha of 0.05
+# Here, create a unique locus ID that contains the locus number plus the basepair of the SNP within the RAD-tag, to facilitate filtering the Structure file below, which has the locus IDs in this format
+# Then summarize the resulting data to find loci present 2 or more times
+HW_disequil <- sumstats_pe %>%
+  # Create a new locus ID column
+  dplyr::mutate(
+    # Col is the nucleotide site within the catalog locus, not that this is a zero-based offset, such that the first nucleotide is 0
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  filter(HWE_P_value <= 0.05) %>%
+  droplevels() %>%
+  group_by(locus_bp_ID) %>%
+  dplyr::summarise(
+    n_pops = n_distinct(Pop_ID)
+  ) %>%
+  filter(n_pops > 1) %>%
+  pull(locus_bp_ID)
+
+head(HW_disequil)
+
+# 307 loci out of HWE
+length(HW_disequil)
+
+# 36106 loci total
+sumstats_pe %>%
+  dplyr::mutate(
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  pull(locus_bp_ID) %>%
+  unique() %>%
+  length()
+
+# If the total number of loci from the Stacks::populations run with a single population is the same as the HWE run here, then 35799 loci should remain after removing the HW_disequil loci
+sumstats_pe %>%
+  dplyr::mutate(
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  pull(locus_bp_ID) %>%
+  unique() %>%
+  length() - length(HW_disequil)
+
+# Read in the full set of loci obtained from the non-HWE run with all individuals considered in the same population
+# Here using the Structure file output by Stacks, which will be filtered and then used to make Bayescan input files
+# This file has two initial lines of metadata: the first line starts with "#" and contains a tag with the version of Stacks used as well as the date the file was created 
+# Here reading this file in as a table to get the dimensions (two rows per individual because these are diploid, and number of columns is the number of loci)
+struc <- read.table(file.path(file.path(res_path, "paired_end"), "populations.structure"), skip = 2)
+# glimpse(struc)
+dim(struc) # 286 rows, 6443 columns
+# head(struc[, 1]) # Sample names contained in the first column
+ 
+# The number of loci in this file is not the same as when running Stacks::populations for HWE. This is because the rules given to populations (-r 0.8 for instance) should yield different results when samples are considered as a single or multiple populations. Regardless, can still search for the loci out of HWE in the single populations output file, and remove them if they are present
+
+# Get the column headers
+
+# Read the first lines of metadata 
+meta <- readLines(file.path(file.path(res_path, "paired_end"), "populations.structure"), n = 2)
+# meta
+
+# Then get the column headers
+col_nms <- meta[-grep("#", meta)]
+# col_nms
+
+# Split out the column headers into a vector, one element per header
+col_nms <- strsplit(col_nms, split = "\t")[[1]]
+head(col_nms)
+
+# How to filter this data and then write out in Structure format again??
+# Could iterate over each row of the data frame, remove the HWE_disequil loci, then print the filtered tab-separated line (preceded by the sample name) to a new file with the extension .str
+# If proceed with this plan, then will need to print the Structure header (two blank spaces, then loci names, all tab-separated) prior to printing the data lines inside a loop
+names(struc) <- col_nms
+names(struc)[1:2] <- c("indiv", "pop") # Fix the first two column names for the loop below
+glimpse(struc[, 1:10]) # First column contains the sample name, second column is the population identifier
+
+# Filter the genotypes data frame to remove loci in HWE_disequil
+struc2 <- struc[, -which(names(struc) %in% HW_disequil)]
+dim(struc2) # 286 rows = 143 diploid individuals, 6387 - 2 = 6385 loci remain
+unique(struc2$pop) # A single population
+
+# Convert all zeroes (missing data) to -9999 (more compatible with Structure)
+# which(struc2 == 0)
+struc2[struc2 == 0] <- -9999
+
+# Filter column names as well
+col_nms2 <- col_nms[-which(col_nms %in% HW_disequil)]
+length(col_nms2)
+
+# Checking, all remaining column names are not in the list of loci that should have been dropped, looks good 
+# all(!names(struc2) %in% HW_disequil)
+# all(!col_nms2 %in% HW_disequil)
+
+rm(list = "struc") # Remove this object as it takes up memory and won't be used in this format
+
+# Create a new Structure file, then proceed with the plan above
+# Opened this file periodically in Vim to doublecheck structure
+# Used :set list in Vim to see invisible characters
+file_nm <- "paired_end_HWE_filter.str"
+
+# Remove previous versions
+file.remove(file.path(file.path(res_path, "paired_end"), file_nm))
+
+# Initialize the Structure header, with the two tab symbols at the beginning and a new line symbol at the end
+header <- c("\t", "\t", paste(paste(col_nms2[-grep("^$", col_nms2)], collapse = " "), "\n", sep = ""))
+# header
+
+# Print the Structure header
+cat(header, file = file.path(file.path(res_path, "paired_end"), file_nm), append = TRUE)
+
+# Print each line of the filtered data frame above
+invisible(pblapply(1:nrow(struc2), function(i){
+
+  cat(c(as.character(struc2$indiv[i]), "\t", struc2$pop[i], "\t", paste(paste(struc2[i, -grep("^indiv$|^pop$", names(struc2))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "paired_end"), file_nm), append = TRUE)
+
+}))
+
+# Opened the file in Vim to check out results, looks great
+rm(list = "struc2")
+
+```
+
+### Merged SNPs
+
+4 populations, so 5 lines of metadata here too.
+```{r echo = TRUE, eval = FALSE}
+
+# Read the first lines of metadata 
+meta <- readLines(file.path(file.path(res_path, "merged/HWE"), "populations.sumstats.tsv"), n = 5)
+# meta
+
+# Get the populations
+pops <- meta[grep("\tPE|\tSE", meta)]
+# pops
+
+# Then get the column headers
+col_nms <- meta[grep("# Locus ID", meta)]
+col_nms
+
+# Split out the column headers into a vector, one element per header
+col_nms <- strsplit(col_nms, split = "\t")[[1]]
+
+# Substitute symbols that will interfere with becoming column headers
+col_nms <- gsub("# ", "", col_nms)
+col_nms
+
+col_nms <- gsub("[[:space:]]|-", "_", col_nms)
+col_nms
+
+# Get the data lines
+sumstats_merge <- read.table(file.path(file.path(res_path, "merged/HWE"), "populations.sumstats.tsv"), sep = "\t", header = FALSE)
+# glimpse(sumstats_merge)
+
+# Add back headers
+names(sumstats_merge) <- col_nms
+glimpse(sumstats_merge[, 1:10])
+
+# Find loci out of HWE using alpha of 0.05
+# Here, create a unique locus ID that contains the locus number plus the basepair of the SNP within the RAD-tag, to facilitate filtering the Structure file below, which has the locus IDs in this format
+# Then summarize the resulting data to find loci present 2 or more times
+HW_disequil <- sumstats_merge %>%
+  # Create a new locus ID column
+  dplyr::mutate(
+    # Col is the nucleotide site within the catalog locus, not that this is a zero-based offset, such that the first nucleotide is 0
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  filter(HWE_P_value <= 0.05) %>%
+  droplevels() %>%
+  group_by(locus_bp_ID) %>%
+  dplyr::summarise(
+    n_pops = n_distinct(Pop_ID)
+  ) %>%
+  filter(n_pops > 1) %>%
+  pull(locus_bp_ID)
+
+head(HW_disequil)
+
+# 153 loci out of HWE
+length(HW_disequil)
+
+# 1254 loci total
+sumstats_merge %>%
+  dplyr::mutate(
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  pull(locus_bp_ID) %>%
+  unique() %>%
+  length()
+
+# If the total number of loci from the Stacks::populations run with a single population is the same as the HWE run here, then 1101 loci should remain after removing the HW_disequil loci
+sumstats_merge %>%
+  dplyr::mutate(
+    locus_bp_ID = paste(Locus_ID, Col, sep = "_")
+  ) %>%
+  pull(locus_bp_ID) %>%
+  unique() %>%
+  length() - length(HW_disequil)
+
+# Read in the full set of loci obtained from the non-HWE run with all individuals considered in the same population
+# Here using the Structure file output by Stacks, which will be filtered and then used to make Bayescan input files
+# This file has two initial lines of metadata: the first line starts with "#" and contains a tag with the version of Stacks used as well as the date the file was created 
+# Here reading this file in as a table to get the dimensions (two rows per individual because these are diploid, and number of columns is the number of loci)
+struc <- read.table(file.path(file.path(res_path, "merged"), "populations.structure"), skip = 2)
+# glimpse(struc)
+dim(struc) # 564 rows, 1022 columns
+# head(struc[, 1]) # Sample names contained in the first column
+ 
+# The number of loci in this file is not the same as when running Stacks::populations for HWE. This is because the rules given to populations (-r 0.8 for instance) should yield different results when samples are considered as a single or multiple populations. Regardless, can still search for the loci out of HWE in the single populations output file, and remove them if they are present
+
+# Get the column headers
+
+# Read the first lines of metadata 
+meta <- readLines(file.path(file.path(res_path, "merged"), "populations.structure"), n = 2)
+# meta
+
+# Then get the column headers
+col_nms <- meta[-grep("#", meta)]
+# col_nms
+
+# Split out the column headers into a vector, one element per header
+col_nms <- strsplit(col_nms, split = "\t")[[1]]
+head(col_nms)
+
+# How to filter this data and then write out in Structure format again??
+# Could iterate over each row of the data frame, remove the HWE_disequil loci, then print the filtered tab-separated line (preceded by the sample name) to a new file with the extension .str
+# If proceed with this plan, then will need to print the Structure header (two blank spaces, then loci names, all tab-separated) prior to printing the data lines inside a loop
+names(struc) <- col_nms
+names(struc)[1:2] <- c("indiv", "pop") # Fix the first two column names for the loop below
+glimpse(struc[, 1:10]) # First column contains the sample name, second column is the population identifier
+
+# Filter the genotypes data frame to remove loci in HWE_disequil
+struc2 <- struc[, -which(names(struc) %in% HW_disequil)]
+dim(struc2) # 564 rows = 282 diploid individuals, 871 - 2 = 869 remaining loci
+unique(struc2$pop) # A single population
+
+rm(list = "struc") # Remove this object as it takes up memory and won't be used in this format
+
+# Convert all zeroes (missing data) to -9999 (more compatible with Structure)
+# which(struc2 == 0)
+struc2[struc2 == 0] <- -9999
+
+# Filter column names as well
+col_nms2 <- col_nms[-which(col_nms %in% HW_disequil)]
+length(col_nms2)
+
+# Checking, all remaining column names are not in the list of loci that should have been dropped, looks good 
+# all(!names(struc2) %in% HW_disequil)
+# all(!col_nms2 %in% HW_disequil)
+
+# Remove suffixes in sample names
+struc2$indiv <- gsub(".fil.sorted|.1.sorted", "", as.character(struc2$indiv))
+
+# Create a new Structure file, then proceed with the plan above
+# Opened this file periodically in Vim to doublecheck structure
+# Used :set list in Vim to see invisible characters
+file_nm <- "merged_HWE_filter.str"
+
+# Remove previous versions
+file.remove(file.path(file.path(res_path, "merged"), file_nm))
+
+# Initialize the Structure header, with the two tab symbols at the beginning and a new line symbol at the end
+header <- c("\t", "\t", paste(paste(col_nms2[-grep("^$", col_nms2)], collapse = " "), "\n", sep = ""))
+# header
+
+# Print the Structure header
+cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+
+# Print each line of the filtered data frame above
+invisible(pblapply(1:nrow(struc2), function(i){
+
+  cat(c(as.character(struc2$indiv[i]), "\t", struc2$pop[i], "\t", paste(paste(struc2[i, -grep("^indiv$|^pop$", names(struc2))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+
+}))
+
+# Opened the file in Vim to check out results, looks great
+rm(list = "struc2")
+
+```

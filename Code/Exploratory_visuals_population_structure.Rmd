@@ -1,0 +1,173 @@
+---
+title: "Exploratory visuals of population genetics structure"
+author: "Grace Smith-Vidaurre"
+date: "September 12, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Make exploratory visuals of population genetic structure with DAPC (discriminant analysis of principal components) with the three sets of HWE filtered SNPs.
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Read in the three HWE filtered Structure files: single-end, paired-end, merged. These will be read in as genind objects. The number of loci per file is documented in HWE_filtering.Rmd.
+```{r echo = TRUE, eval = FALSE}
+
+single_end <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_filter.str"), n.ind = 139, n.loc = 30085, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+str(single_end)
+
+paired_end <- read.structure(file.path(file.path(res_path, "paired_end"), "paired_end_HWE_filter.str"), n.ind = 143, n.loc = 6385, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+str(paired_end)
+
+merged <- read.structure(file.path(file.path(res_path, "merged"), "merged_HWE_filter.str"), n.ind = 282, n.loc = 869, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+str(merged)
+
+# All loci are biallelic
+unique(single_end@loc.n.all)
+unique(paired_end@loc.n.all)
+unique(merged@loc.n.all)
+
+```
+
+Run DAPC per set of SNPs using sampling locations from sample metadata. Consider also doing this after filtering out individuals with a lot of missing data.
+
+Single-end SNPs.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp <- sapply(1:nrow(single_end@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(single_end@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp)
+length(grp)
+
+# Replace the population slot with this info
+# single_end@pop <- as.factor(grp)
+
+# Change levels to be by country: Argentina, Spain, U.S.
+grp <- factor(grp, levels = c("ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+
+# 50 PCs retained, 3 discriminant functions retained, determined by running the function withhout these arguments and inspecting the resulting visuals
+# If all PCs used, then no points will show up, just labels for sampling sites
+dapc1 <- dapc(single_end, pop = grp, n.pca = 40, n.da = 3)
+dapc1
+
+# Make colors by country, hues by sampling location
+levels(grp)
+
+# Argentina in blues, Spain in reds, US in golds
+cols <- c("navy", "royalblue", "dodgerblue", "cyan", "turquoise", "firebrick", "red", "brown4", "coral2", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 5), rep(15, 6), rep(17, 4))
+
+dev.off()
+scatter(dapc1, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+```
+
+Paired-end SNPs.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp <- sapply(1:nrow(paired_end@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(paired_end@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp)
+length(grp)
+unique(grp)
+
+# Replace the population slot with this info
+# single_end@pop <- as.factor(grp)
+
+# Change levels to be by country: Uruguay, Argentina, Spain, U.S.
+levels(factor(grp))
+
+grp <- factor(grp, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+
+# 50 PCs retained, 3 discriminant functions retained, determined by running the function withhout these arguments and inspecting the resulting visuals
+# If all PCs used, then no points will show up, just labels for sampling sites
+# dapc(paired_end, pop = grp)
+dapc2 <- dapc(paired_end, pop = grp, n.pca = 40, n.da = 3)
+dapc2
+
+# Make colors by country, hues by sampling location
+levels(grp)
+
+# Uruguay in greens, Argentina in blues, Spain in reds, US in golds
+cols <- c("green", "forestgreen", "darkolivegreen4", "darkseagreen", "chartreuse3", "olivedrab", "palegreen2", "seagreen4", "springgreen3", "yellowgreen", "navy", "royalblue", "dodgerblue", "cyan", "turquoise", "firebrick", "brown4", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(18, 10), rep(19, 5), rep(15, 4), rep(17, 4))
+
+# dev.off()
+scatter(dapc2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+```
+
+Note that some patterns change depending on the number of PCs retained (I didn't play around with the number of discriminant functions), but the overall overlap between most samples, including a lot of URY samples, with GRCA and ILLI falling out as most different, remains.
+
+Merged SNPs.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp <- sapply(1:nrow(merged@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(merged@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp)
+length(grp)
+unique(grp)
+
+# Replace the population slot with this info
+# single_end@pop <- as.factor(grp)
+
+# Change levels to be by country: Uruguay, Argentina, Spain, U.S.
+levels(factor(grp))
+
+grp <- factor(grp, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+
+# 50 PCs retained, 3 discriminant functions retained, determined by running the function withhout these arguments and inspecting the resulting visuals
+# If all PCs used, then no points will show up, just labels for sampling sites
+# dapc(merged, pop = grp)
+dapc3 <- dapc(merged, pop = grp, n.pca = 40, n.da = 3)
+dapc3
+
+# Make colors by country, hues by sampling location
+levels(grp)
+
+# Uruguay in greens, Argentina in blues, Spain in reds, US in golds
+cols <- c("green", "forestgreen", "darkolivegreen4", "darkseagreen", "chartreuse3", "olivedrab", "palegreen2", "seagreen4", "springgreen3", "yellowgreen", "navy", "royalblue", "dodgerblue", "cyan", "turquoise", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(18, 10), rep(19, 5), rep(15, 6), rep(17, 4))
+
+dev.off()
+scatter(dapc3, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+```
+
