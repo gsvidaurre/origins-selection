@@ -20,14 +20,26 @@ rm(list = ls())
 X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx")
 invisible(lapply(X, library, character.only = TRUE))
 
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
 # Path to Stacks output 
 res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
 
 ```
 
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+
 Read in the populations.sumstats.tsv files with HWE p-values. Significant p-values (< 0.05) mean a locus was out of equilibrium. Here, search for loci that were out of HWE in 2 population contrasts for the SE SNPs, and 3 populations for the PE and merged SNPs. Convert zeroes to -9999 to indicate missing data, and remove suffixes after sample names.
 
-### SE SNPs
+### SE SNPs, HWE filtering
 
 In this .tsv file, the first 3 lines contain the population IDs used for HWE, each followed by all individuals in that population. Then the next line contains column headers, then follow all the lines with data. The population and column header lines all start with "#". Note that each row is actually a locus per population, so each locus is repeated for the given number of populations used in the HWE contrasts.
 ```{r echo = TRUE, eval = FALSE}
@@ -187,7 +199,162 @@ invisible(pblapply(1:nrow(struc2), function(i){
 }))
 
 # Opened the file in Vim to check out results, looks great
-rm(list = "struc2")
+
+```
+
+### SE SNPs, additional filtering
+
+Filter out individuals with > 80% missing data, and any loci with > 80% missing data for any sampling location.
+```{r echo = TRUE, eval = FALSE}
+
+# Find the percentage missing data per individual
+names(struc2)[1:10]
+
+indivs <- unique(struc2$indiv)
+indivs
+
+# i <- 1
+# z <- 1
+i2rem <- rbindlist(pblapply(1:length(indivs), function(i){
+  
+  # Get each allele per locus per individual
+  # Each individual has two rows, one per allele
+  tmp <- struc2[grep(paste("^", indivs[i], "$", sep = ""), struc2$indiv), -grep("indiv|pop", names(struc2))]
+  # dim(tmp)
+  
+  # Find the percentage of missing data per diploid row
+  perc <- unlist(lapply(1:nrow(tmp), function(z){
+    (length(which(tmp[z, ] == -9999))/length(tmp[z, ]))*100
+  }))
+  
+  # if(any(perc) >= 80){
+    # return(indivs[i])
+  # } else {
+    return(data.frame(indiv = paste(indivs[i], c(1, 2), sep = "_"), perc_miss = perc))
+  # }
+  
+}))
+glimpse(i2rem)
+
+range(i2rem$perc_miss)
+hist(i2rem$perc_miss) # Natural breaks at 10% missing data (very conservative), and 30% (less conservative)
+
+# If I did filter out individuals with > 10% missing data, would any CT birds be left?
+# Yep, there would be more than 10 left
+i2rem %>%
+  dplyr::mutate(
+    indiv = gsub("_1|_2", "", indiv)
+  ) %>%
+  filter(perc_miss <= 10) %>%
+  pull(indiv) %>%
+  unique() %>%
+  as.character()
+
+# Which individuals have more than 10% missing data?
+# A LOT of CT individuals....
+is <- i2rem %>%
+  dplyr::mutate(
+    indiv = gsub("_1|_2", "", indiv)
+  ) %>%
+  filter(perc_miss > 10) %>%
+  pull(indiv) %>%
+  unique() %>%
+  as.character()
+
+# Remove these 35 individuals, a very conservative filter on missing data!
+is
+
+# Iterate over sampling locations, and within samples per location, find loci with > 80% missing data
+sites <- unique(meta_dats$Site_Code)
+sites
+
+loci <- names(struc2)[-grep("indiv|pop", names(struc2))]
+head(loci)
+
+# i <- 1
+# z <- 1
+l2rem_df <- rbindlist(pblapply(1:length(sites), function(i){
+  
+  # Subset the Structure object by individuals at the given site
+  tmp_indivs <- meta_dats %>%
+    filter(Sequencing_Type == "Single-end") %>%
+    filter(Site_Code == sites[i]) %>%
+    pull(Sample_Name)
+  
+  tmp_str <- struc2 %>%
+    filter(indiv %in% tmp_indivs)
+  # dim(tmp_str)
+
+  l2rem <- rbindlist(lapply(1:length(loci), function(z){
+    SNPs <- tmp_str[, grep(paste("^", loci[z], "$", sep = ""), names(tmp_str))]
+    perc <- (length(which(SNPs == -9999))/length(SNPs))*100
+    return(data.frame(site = sites[i], locus_ID = loci[z], perc_miss = perc))
+  }))
+  
+  return(l2rem)
+  
+}))
+
+glimpse(l2rem_df)
+
+saveRDS(l2rem_df, file.path(file.path(res_path, "single_end"), "SE_l2rem_df.RDS"))
+
+# Distribution of missing data across loci when evaluated by site?
+# Find good natural breaks and use this to set a threshold for removal of loci with the highest amounts of missing data
+l2rem_df <- readRDS(file.path(file.path(res_path, "single_end"), "SE_l2rem_df.RDS"))
+
+# Histogram of non-zero missing data percentages
+# 20% is a good natural break
+l2rem_df %>%
+  filter(perc_miss > 0) %>%
+  pull(perc_miss) %>%
+  hist()
+
+l2rem <- l2rem_df %>%
+  filter(perc_miss >= 20) %>%
+  pull(locus_ID) %>%
+  unique() %>%
+  as.character()
+
+# Wow that halves the number of loci for the SE SNP dataset
+length(l2rem)
+head(l2rem)
+
+# Remove the individuals and loci determined to have high levels of missing data
+struc3 <- struc2 %>%
+  filter(!indiv %in% is) %>%
+  dplyr::select(-c(all_of(l2rem))) %>%
+  droplevels()
+
+dim(struc2) # 139 individuals, 30085 loci
+dim(struc3) # 210 rows = 105 diploid individuals, 13243 - 2 = 13241 loci
+
+# Write out a new file as above for the SE libraries, then remove the struc2 and 3 objects
+
+# Create a new Structure file, then proceed with the plan above
+# Opened this file periodically in Vim to doublecheck structure
+# Used :set list in Vim to see invisible characters
+file_nm <- "single_end_HWE_missingData_filters.str"
+
+# Remove previous versions
+file.remove(file.path(file.path(res_path, "single_end"), file_nm))
+
+# Initialize the Structure header, with the two tab symbols at the beginning and a new line symbol at the end
+header <- c("\t", "\t", paste(paste(names(struc3)[-grep("^indiv$|^pop$", names(struc3))], collapse = " "), "\n", sep = ""))
+# header
+
+# Print the Structure header
+cat(header, file = file.path(file.path(res_path, "single_end"), file_nm), append = TRUE)
+
+# Print each line of the filtered data frame above
+invisible(pblapply(1:nrow(struc3), function(i){
+
+  cat(c(struc3$indiv[i], "\t", struc3$pop[i], "\t", paste(paste(struc3[i, -grep("^indiv$|^pop$", names(struc3))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "single_end"), file_nm), append = TRUE)
+
+}))
+
+# Opened the file in Vim to check out results, looks good
+rm(list = c("struc2", "struc3"))
 
 ```
 
@@ -345,6 +512,169 @@ rm(list = "struc2")
 
 ```
 
+### PE SNPs, additional filtering
+
+Filter out individuals with > 80% missing data, and any loci with > 80% missing data for any sampling location.
+```{r echo = TRUE, eval = FALSE}
+
+# Find the percentage missing data per individual
+names(struc2)[1:10]
+
+indivs <- unique(as.character(struc2$indiv))
+indivs
+
+# i <- 1
+# z <- 1
+i2rem <- rbindlist(pblapply(1:length(indivs), function(i){
+  
+  # Get each allele per locus per individual
+  # Each individual has two rows, one per allele
+  tmp <- struc2[grep(paste("^", indivs[i], "$", sep = ""), struc2$indiv), -grep("indiv|pop", names(struc2))]
+  # dim(tmp)
+  
+  # Find the percentage of missing data per diploid row
+  perc <- unlist(lapply(1:nrow(tmp), function(z){
+    (length(which(tmp[z, ] == -9999))/length(tmp[z, ]))*100
+  }))
+  
+  # if(any(perc) >= 80){
+    # return(indivs[i])
+  # } else {
+    return(data.frame(indiv = paste(indivs[i], c(1, 2), sep = "_"), perc_miss = perc))
+  # }
+  
+}))
+glimpse(i2rem)
+
+range(i2rem$perc_miss)
+hist(i2rem$perc_miss) # Natural breaks at 10% missing data (very conservative), and 30% (less conservative)
+
+# If I did filter out individuals with > 10% missing data, would any CT birds be left?
+# Yep, there would be about 5 left and 82 birds left total
+i2rem %>%
+  dplyr::mutate(
+    indiv = gsub("_1|_2", "", indiv)
+  ) %>%
+  filter(perc_miss <= 10) %>%
+  pull(indiv) %>%
+  unique() %>%
+  as.character()
+
+# Which individuals have more than 10% missing data?
+# A LOT of individuals....
+is <- i2rem %>%
+  dplyr::mutate(
+    indiv = gsub("_1|_2", "", indiv)
+  ) %>%
+  filter(perc_miss > 10) %>%
+  pull(indiv) %>%
+  unique() %>%
+  as.character()
+
+# Remove these 61 individuals, a very conservative filter on missing data!
+is
+
+# Iterate over sampling locations, and within samples per location, find loci with > 80% missing data
+sites <- meta_dats %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  pull(Site_Code) %>%
+  unique()
+sites
+
+loci <- names(struc2)[-grep("indiv|pop", names(struc2))]
+head(loci)
+
+# i <- 1
+# z <- 1
+l2rem_df <- rbindlist(pblapply(1:length(sites), function(i){
+  
+  # Subset the Structure object by individuals at the given site
+  tmp_indivs <- meta_dats %>%
+    filter(Sequencing_Type == "Paired-end") %>%
+    filter(Site_Code == sites[i]) %>%
+    pull(Sample_Name)
+  
+  tmp_str <- struc2 %>%
+    filter(indiv %in% tmp_indivs)
+  # dim(tmp_str)
+
+  l2rem <- rbindlist(lapply(1:length(loci), function(z){
+    SNPs <- tmp_str[, grep(paste("^", loci[z], "$", sep = ""), names(tmp_str))]
+    perc <- (length(which(SNPs == -9999))/length(SNPs))*100
+    return(data.frame(site = sites[i], locus_ID = loci[z], perc_miss = perc))
+  }))
+  
+  return(l2rem)
+  
+}))
+
+glimpse(l2rem_df)
+
+saveRDS(l2rem_df, file.path(file.path(res_path, "paired_end"), "PE_l2rem_df.RDS"))
+
+# Distribution of missing data across loci when evaluated by site?
+# Find good natural breaks and use this to set a threshold for removal of loci with the highest amounts of missing data
+l2rem_df <- readRDS(file.path(file.path(res_path, "paired_end"), "PE_l2rem_df.RDS"))
+
+# Histogram of non-zero missing data percentages
+# 50% is a good natural break here
+l2rem_df %>%
+  filter(perc_miss > 0) %>%
+  pull(perc_miss) %>%
+  hist()
+
+# Using 20% only leaves 2 loci...and using 35% leaves only a little over a hundred loci
+l2rem <- l2rem_df %>%
+  filter(perc_miss > 50) %>%
+  pull(locus_ID) %>%
+  unique() %>%
+  as.character()
+
+# Wow that is about half of the loci for the PE SNP dataset
+length(l2rem)
+head(l2rem)
+
+# Remove the individuals and loci determined to have high levels of missing data
+struc3 <- struc2 %>%
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  filter(!indiv %in% is) %>%
+  dplyr::select(-c(all_of(l2rem))) %>%
+  droplevels()
+
+dim(struc2) # 143 individuals, 6385 loci
+dim(struc3) # 166 rows = 83 diploid individuals, 2942 - 2 = 2940 loci
+
+# Write out a new file as above for the SE libraries, then remove the struc2 and 3 objects
+
+# Create a new Structure file, then proceed with the plan above
+# Opened this file periodically in Vim to doublecheck structure
+# Used :set list in Vim to see invisible characters
+file_nm <- "paired_end_HWE_missingData_filters.str"
+
+# Remove previous versions
+file.remove(file.path(file.path(res_path, "paired_end"), file_nm))
+
+# Initialize the Structure header, with the two tab symbols at the beginning and a new line symbol at the end
+header <- c("\t", "\t", paste(paste(names(struc3)[-grep("^indiv$|^pop$", names(struc3))], collapse = " "), "\n", sep = ""))
+# header
+
+# Print the Structure header
+cat(header, file = file.path(file.path(res_path, "paired_end"), file_nm), append = TRUE)
+
+# Print each line of the filtered data frame above
+invisible(pblapply(1:nrow(struc3), function(i){
+
+  cat(c(struc3$indiv[i], "\t", struc3$pop[i], "\t", paste(paste(struc3[i, -grep("^indiv$|^pop$", names(struc3))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "paired_end"), file_nm), append = TRUE)
+
+}))
+
+# Opened the file in Vim to check out results, looks good
+rm(list = c("struc2", "struc3"))
+
+```
+
 ### Merged SNPs
 
 4 populations, so 5 lines of metadata here too.
@@ -499,5 +829,166 @@ invisible(pblapply(1:nrow(struc2), function(i){
 
 # Opened the file in Vim to check out results, looks great
 rm(list = "struc2")
+
+```
+
+### Merged SNPs, additional filtering
+
+Filter out individuals with > 80% missing data, and any loci with > 80% missing data for any sampling location.
+```{r echo = TRUE, eval = FALSE}
+
+# Find the percentage missing data per individual
+names(struc2)[1:10]
+
+indivs <- unique(as.character(struc2$indiv))
+indivs
+
+# i <- 1
+# z <- 1
+i2rem <- rbindlist(pblapply(1:length(indivs), function(i){
+  
+  # Get each allele per locus per individual
+  # Each individual has two rows, one per allele
+  tmp <- struc2[grep(paste("^", indivs[i], "$", sep = ""), struc2$indiv), -grep("indiv|pop", names(struc2))]
+  # dim(tmp)
+  
+  # Find the percentage of missing data per diploid row
+  perc <- unlist(lapply(1:nrow(tmp), function(z){
+    (length(which(tmp[z, ] == -9999))/length(tmp[z, ]))*100
+  }))
+  
+  # if(any(perc) >= 80){
+    # return(indivs[i])
+  # } else {
+    return(data.frame(indiv = paste(indivs[i], c(1, 2), sep = "_"), perc_miss = perc))
+  # }
+  
+}))
+glimpse(i2rem)
+
+range(i2rem$perc_miss)
+hist(i2rem$perc_miss) # Natural breaks at 10% missing data (very conservative), and 30% (less conservative)
+
+# If I did filter out individuals with > 10% missing data, would any CT birds be left?
+# Yep, there would be about 5 left in PE, more in SE, and 215 birds left total
+i2rem %>%
+  dplyr::mutate(
+    indiv = gsub("_1|_2", "", indiv)
+  ) %>%
+  filter(perc_miss <= 10) %>%
+  pull(indiv) %>%
+  unique() %>%
+  as.character()
+
+# Which individuals have more than 10% missing data?
+# A lot of individuals....
+is <- i2rem %>%
+  dplyr::mutate(
+    indiv = gsub("_1|_2", "", indiv)
+  ) %>%
+  filter(perc_miss > 10) %>%
+  pull(indiv) %>%
+  unique() %>%
+  as.character()
+
+# Remove these 67 individuals, a very conservative filter on missing data!
+is
+
+# Iterate over sampling locations, and within samples per location, find loci with > 80% missing data
+sites <- meta_dats %>%
+  pull(Site_Code) %>%
+  unique()
+sites
+
+loci <- names(struc2)[-grep("indiv|pop", names(struc2))]
+head(loci)
+
+# i <- 1
+# z <- 1
+l2rem_df <- rbindlist(pblapply(1:length(sites), function(i){
+  
+  # Subset the Structure object by individuals at the given site
+  tmp_indivs <- meta_dats %>%
+    filter(Site_Code == sites[i]) %>%
+    pull(Sample_Name)
+  
+  tmp_str <- struc2 %>%
+    filter(indiv %in% tmp_indivs)
+  # dim(tmp_str)
+
+  l2rem <- rbindlist(lapply(1:length(loci), function(z){
+    SNPs <- tmp_str[, grep(paste("^", loci[z], "$", sep = ""), names(tmp_str))]
+    perc <- (length(which(SNPs == -9999))/length(SNPs))*100
+    return(data.frame(site = sites[i], locus_ID = loci[z], perc_miss = perc))
+  }))
+  
+  return(l2rem)
+  
+}))
+
+glimpse(l2rem_df)
+
+saveRDS(l2rem_df, file.path(file.path(res_path, "merged"), "merged_l2rem_df.RDS"))
+
+# Distribution of missing data across loci when evaluated by site?
+# Find good natural breaks and use this to set a threshold for removal of loci with the highest amounts of missing data
+l2rem_df <- readRDS(file.path(file.path(res_path, "merged"), "merged_l2rem_df.RDS"))
+
+# Histogram of non-zero missing data percentages
+# 30% is a good natural break here
+l2rem_df %>%
+  filter(perc_miss > 0) %>%
+  pull(perc_miss) %>%
+  hist()
+
+l2rem <- l2rem_df %>%
+  filter(perc_miss > 30) %>%
+  pull(locus_ID) %>%
+  unique() %>%
+  as.character()
+
+# Also about half of the loci for the merged SNP dataset
+length(l2rem)
+head(l2rem)
+ncol(struc2)
+
+# Remove the individuals and loci determined to have high levels of missing data
+struc3 <- struc2 %>%
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  filter(!indiv %in% is) %>%
+  dplyr::select(-c(all_of(l2rem))) %>%
+  droplevels()
+
+dim(struc2) # 232 individuals, 869 loci
+dim(struc3) # 216 diploid individuals, 561 loci
+
+# Write out a new file as above for the PE libraries, then remove the struc2 and 3 objects
+
+# Create a new Structure file, then proceed with the plan above
+# Opened this file periodically in Vim to doublecheck structure
+# Used :set list in Vim to see invisible characters
+file_nm <- "merged_HWE_missingData_filters.str"
+
+# Remove previous versions
+file.remove(file.path(file.path(res_path, "merged"), file_nm))
+
+# Initialize the Structure header, with the two tab symbols at the beginning and a new line symbol at the end
+header <- c("\t", "\t", paste(paste(names(struc3)[-grep("^indiv$|^pop$", names(struc3))], collapse = " "), "\n", sep = ""))
+# header
+
+# Print the Structure header
+cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+
+# Print each line of the filtered data frame above
+invisible(pblapply(1:nrow(struc3), function(i){
+
+  cat(c(struc3$indiv[i], "\t", struc3$pop[i], "\t", paste(paste(struc3[i, -grep("^indiv$|^pop$", names(struc3))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+
+}))
+
+# Opened the file in Vim to check out results, looks good
+rm(list = c("struc2", "struc3"))
 
 ```

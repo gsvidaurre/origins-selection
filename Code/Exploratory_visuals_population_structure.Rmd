@@ -25,6 +25,8 @@ xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Bar
 # Path to Stacks output, including the HWE filtered SNPs in Structure format 
 res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
 
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
 ```
 
 Read in metadata.
@@ -35,139 +37,505 @@ glimpse(meta_dats)
 
 ```
 
-Read in the three HWE filtered Structure files: single-end, paired-end, merged. These will be read in as genind objects. The number of loci per file is documented in HWE_filtering.Rmd.
+Read in the three HWE filtered Structure files: single-end, paired-end, merged, and the 2 versions of each (just HWE filtered, or additionally filtered by remvoing individuals and loci with a lot of missing data). These will be read in as genind objects. The number of loci per file is documented in HWE_filtering.Rmd.
 ```{r echo = TRUE, eval = FALSE}
 
 single_end <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_filter.str"), n.ind = 139, n.loc = 30085, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
 str(single_end)
 
+single_end_filt <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_missingData_filters.str"), n.ind = 105, n.loc = 13241, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+str(single_end_filt)
+
 paired_end <- read.structure(file.path(file.path(res_path, "paired_end"), "paired_end_HWE_filter.str"), n.ind = 143, n.loc = 6385, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
 str(paired_end)
+
+paired_end_filt <- read.structure(file.path(file.path(res_path, "paired_end"), "paired_end_HWE_missingData_filters.str"), n.ind = 83, n.loc = 2940, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+str(paired_end_filt)
 
 merged <- read.structure(file.path(file.path(res_path, "merged"), "merged_HWE_filter.str"), n.ind = 282, n.loc = 869, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
 str(merged)
 
+merged_filt <- read.structure(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters.str"), n.ind = 216, n.loc = 561, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+str(merged_filt)
+
 # All loci are biallelic
-unique(single_end@loc.n.all)
-unique(paired_end@loc.n.all)
-unique(merged@loc.n.all)
+# unique(single_end@loc.n.all)
+# unique(paired_end@loc.n.all)
+# unique(merged@loc.n.all)
 
 ```
 
 Run DAPC per set of SNPs using sampling locations from sample metadata. Consider also doing this after filtering out individuals with a lot of missing data.
 
-Single-end SNPs.
+Single-end SNPs, HWE filter.
 ```{r echo = TRUE, eval = FALSE}
 
 # Get sample locations from metadata in the same order of samples in the genind object
-grp <- sapply(1:nrow(single_end@tab), function(i){
+grp1 <- sapply(1:nrow(single_end@tab), function(i){
   meta_dats$Site_Code[grep(paste("^", dimnames(single_end@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
 })
-head(grp)
-length(grp)
+head(grp1)
+length(grp1)
 
 # Replace the population slot with this info
 # single_end@pop <- as.factor(grp)
 
 # Change levels to be by country: Argentina, Spain, U.S.
-grp <- factor(grp, levels = c("ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+grp1 <- factor(grp1, levels = c("ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
 
-# 50 PCs retained, 3 discriminant functions retained, determined by running the function withhout these arguments and inspecting the resulting visuals
 # If all PCs used, then no points will show up, just labels for sampling sites
-dapc1 <- dapc(single_end, pop = grp, n.pca = 40, n.da = 3)
+# Here selected the number of PCs that contained 60% of variation, and 2 discriminant functions
+dapc1 <- dapc(single_end, pop = grp1, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 61 PCs retained
 dapc1
 
 # Make colors by country, hues by sampling location
-levels(grp)
+levels(grp1)
 
-# Argentina in blues, Spain in reds, US in golds
-cols <- c("navy", "royalblue", "dodgerblue", "cyan", "turquoise", "firebrick", "red", "brown4", "coral2", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+# Argentina in grays, Spain in reds, US in golds
+cols <- c("black", "gray5", "gray25", "gray50", "gray75", "firebrick", "red", "brown4", "coral2", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
 
 # Shapes by country
-pchs <- c(rep(19, 5), rep(15, 6), rep(17, 4))
+pchs <- c(rep(18, 5), rep(15, 6), rep(17, 4))
 
-dev.off()
+# dev.off()
 scatter(dapc1, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
 
 ```
 
-Paired-end SNPs.
+Single-end SNPs, HWE filter + missing data filters.
 ```{r echo = TRUE, eval = FALSE}
 
 # Get sample locations from metadata in the same order of samples in the genind object
-grp <- sapply(1:nrow(paired_end@tab), function(i){
-  meta_dats$Site_Code[grep(paste("^", dimnames(paired_end@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+grp1.2 <- sapply(1:nrow(single_end_filt@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(single_end_filt@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
 })
-head(grp)
-length(grp)
-unique(grp)
+head(grp1.2)
+length(grp1.2)
 
 # Replace the population slot with this info
 # single_end@pop <- as.factor(grp)
 
-# Change levels to be by country: Uruguay, Argentina, Spain, U.S.
-levels(factor(grp))
+# Change levels to be by country: Argentina, Spain, U.S.
+levels(factor(grp1.2))
 
-grp <- factor(grp, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+grp1.2 <- factor(grp1.2, levels = c("ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
 
-# 50 PCs retained, 3 discriminant functions retained, determined by running the function withhout these arguments and inspecting the resulting visuals
 # If all PCs used, then no points will show up, just labels for sampling sites
-# dapc(paired_end, pop = grp)
-dapc2 <- dapc(paired_end, pop = grp, n.pca = 40, n.da = 3)
+# Here selected the number of PCs that contained 60% of variation, and 2 discriminant functions
+dapc1.2 <- dapc(single_end_filt, pop = grp1.2, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 46 PCs retained
+dapc1.2
+
+# Make colors by country, hues by sampling location
+levels(grp1.2)
+
+# Argentina in grays, Spain in reds, US in golds
+cols <- c("black", "gray5", "gray25", "gray50", "gray75", "firebrick", "red", "brown4", "coral2", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(18, 5), rep(15, 6), rep(17, 4))
+
+# dev.off()
+scatter(dapc1.2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+```
+
+Place both single end graphics in the same plot using ggplot.
+```{r echo = TRUE, eval = FALSE}
+
+data.frame(
+  X = c(dapc1$ind.coord[, 1], dapc1.2$ind.coord[, 1]),
+  Y = c(dapc1$ind.coord[, 2], dapc1.2$ind.coord[, 2])
+  ) %>%
+  dplyr::mutate(
+    type = c(rep("HWE filter", nrow(dapc1$ind.coord)), rep("HWE + missing data filters", nrow(dapc1.2$ind.coord))),
+    indiv = c(dimnames(dapc1$ind.coord)[[1]], dimnames(dapc1.2$ind.coord)[[1]]),
+    site = c(as.character(grp1), as.character(grp1.2)),
+    site = factor(site, levels = c("ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH")),
+    type = factor(type, levels = c("HWE filter", "HWE + missing data filters"))
+  ) %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = site)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  scale_fill_manual(values = cols) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+```
+
+Paired-end SNPs, HWE filter.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp2 <- sapply(1:nrow(paired_end@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(paired_end@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp2)
+length(grp2)
+unique(grp2)
+
+# Change levels to be by country: Uruguay, Argentina, Spain, U.S.
+levels(factor(grp2))
+
+grp2 <- factor(grp2, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+
+# If all PCs used, then no points will show up, just labels for sampling sites
+dapc2 <- dapc(paired_end, pop = grp2, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 54 PCs retained
 dapc2
 
 # Make colors by country, hues by sampling location
-levels(grp)
+levels(grp2)
 
-# Uruguay in greens, Argentina in blues, Spain in reds, US in golds
-cols <- c("green", "forestgreen", "darkolivegreen4", "darkseagreen", "chartreuse3", "olivedrab", "palegreen2", "seagreen4", "springgreen3", "yellowgreen", "navy", "royalblue", "dodgerblue", "cyan", "turquoise", "firebrick", "brown4", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
 
 # Shapes by country
-pchs <- c(rep(18, 10), rep(19, 5), rep(15, 4), rep(17, 4))
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 4), rep(17, 4))
 
 # dev.off()
 scatter(dapc2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
 
+# Zoom in
+str(dapc2$ind.coord)
+range(dapc2$ind.coord[, 1])
+range(dapc2$ind.coord[, 2])
+
+scatter(dapc2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE, ratio.pca = 1, xlim = c(-12, 12), ylim = c(-4, 4))
+dev.off()
+
 ```
 
-Note that some patterns change depending on the number of PCs retained (I didn't play around with the number of discriminant functions), but the overall overlap between most samples, including a lot of URY samples, with GRCA and ILLI falling out as most different, remains.
-
-Merged SNPs.
+Paired-end SNPs, HWE + missing data filters.
 ```{r echo = TRUE, eval = FALSE}
 
 # Get sample locations from metadata in the same order of samples in the genind object
-grp <- sapply(1:nrow(merged@tab), function(i){
-  meta_dats$Site_Code[grep(paste("^", dimnames(merged@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+grp2.2 <- sapply(1:nrow(paired_end_filt@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(paired_end_filt@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
 })
-head(grp)
-length(grp)
-unique(grp)
-
-# Replace the population slot with this info
-# single_end@pop <- as.factor(grp)
+head(grp2.2)
+length(grp2.2)
+unique(grp2.2)
 
 # Change levels to be by country: Uruguay, Argentina, Spain, U.S.
-levels(factor(grp))
+levels(factor(grp2.2))
 
-grp <- factor(grp, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+grp2.2 <- factor(grp2.2, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
 
-# 50 PCs retained, 3 discriminant functions retained, determined by running the function withhout these arguments and inspecting the resulting visuals
+# If all PCs used, then no points will show up, just labels for sampling sites
+dapc2.2 <- dapc(paired_end_filt, pop = grp2.2, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 38 PCs retained
+dapc2.2
+
+# Make colors by country, hues by sampling location
+levels(grp2.2)
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 9), rep(18, 5), rep(15, 4), rep(17, 4))
+
+# dev.off()
+scatter(dapc2.2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+# Zoom in
+str(dapc2.2$ind.coord)
+range(dapc2.2$ind.coord[, 1])
+range(dapc2.2$ind.coord[, 2])
+
+scatter(dapc2.2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE, ratio.pca = 1, xlim = c(-12, 12), ylim = c(-4, 4))
+dev.off()
+
+```
+
+Place both paired-end graphics in the same plot using ggplot.
+```{r echo = TRUE, eval = FALSE}
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "maroon", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 4), rep(17, 4))
+
+data.frame(
+  X = c(dapc2$ind.coord[, 1], dapc2.2$ind.coord[, 1]),
+  Y = c(dapc2$ind.coord[, 2], dapc2.2$ind.coord[, 2])
+  ) %>%
+  dplyr::mutate(
+    type = c(rep("HWE filter", nrow(dapc2$ind.coord)), rep("HWE + missing data filters", nrow(dapc2.2$ind.coord))),
+    indiv = c(dimnames(dapc2$ind.coord)[[1]], dimnames(dapc2.2$ind.coord)[[1]]),
+    site = c(as.character(grp2), as.character(grp2.2)),
+    site = factor(site, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "GRCA", "CNCT", "FLOR", "ILLI", "WASH")),
+    type = factor(type, levels = c("HWE filter", "HWE + missing data filters"))
+  ) %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = site)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  scale_fill_manual(values = cols) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+```
+
+Note that some patterns change depending on the number of PCs retained (I didn't play around with the number of discriminant functions), but the overall overlap between most samples, including a lot of URY samples, with GRCA and ILLI falling out as most different, remains. These patterns really do seem due to missing data...note how much more similar the PE library patterns are to the SE library patterns when individual and loci with a lot of missing data are removed.
+
+Merged SNPs, HWE filter.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp3 <- sapply(1:nrow(merged@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(merged@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp3)
+length(grp3)
+unique(grp3)
+
+# Change levels to be by country: Uruguay, Argentina, Spain, U.S.
+levels(factor(grp3))
+
+grp3 <- factor(grp3, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+
 # If all PCs used, then no points will show up, just labels for sampling sites
 # dapc(merged, pop = grp)
-dapc3 <- dapc(merged, pop = grp, n.pca = 40, n.da = 3)
+dapc3 <- dapc(merged, pop = grp3, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 67 PCs retained
 dapc3
 
 # Make colors by country, hues by sampling location
-levels(grp)
+levels(grp3)
 
-# Uruguay in greens, Argentina in blues, Spain in reds, US in golds
-cols <- c("green", "forestgreen", "darkolivegreen4", "darkseagreen", "chartreuse3", "olivedrab", "palegreen2", "seagreen4", "springgreen3", "yellowgreen", "navy", "royalblue", "dodgerblue", "cyan", "turquoise", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
 
 # Shapes by country
-pchs <- c(rep(18, 10), rep(19, 5), rep(15, 6), rep(17, 4))
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
 
 dev.off()
 scatter(dapc3, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
 
 ```
 
+Merged SNPs, HWE + missing data filters.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp3.2 <- sapply(1:nrow(merged_filt@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(merged_filt@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp3.2)
+length(grp3.2)
+unique(grp3.2)
+
+# Change levels to be by country: Uruguay, Argentina, Spain, U.S.
+levels(factor(grp3.2))
+
+grp3.2 <- factor(grp3.2, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+
+# If all PCs used, then no points will show up, just labels for sampling sites
+# dapc(merged, pop = grp)
+dapc3.2 <- dapc(merged_filt, pop = grp3.2, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 51 PCs retained
+dapc3.2
+
+# Make colors by country, hues by sampling location
+levels(grp3.2)
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
+
+dev.off()
+scatter(dapc3.2, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+```
+
+Place both paired-end graphics in the same plot using ggplot.
+```{r echo = TRUE, eval = FALSE}
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
+
+data.frame(
+  X = c(dapc3$ind.coord[, 1], dapc3.2$ind.coord[, 1]),
+  Y = c(dapc3$ind.coord[, 2], dapc3.2$ind.coord[, 2])
+  ) %>%
+  dplyr::mutate(
+    type = c(rep("HWE filter", nrow(dapc3$ind.coord)), rep("HWE + missing data filters", nrow(dapc3.2$ind.coord))),
+    indiv = c(dimnames(dapc3$ind.coord)[[1]], dimnames(dapc3.2$ind.coord)[[1]]),
+    site = c(as.character(grp3), as.character(grp3.2)),
+    site = factor(site, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH")),
+    type = factor(type, levels = c("HWE filter", "HWE + missing data filters"))
+  ) %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = site)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  scale_fill_manual(values = cols) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+```
+
+There are some interesting differences in population genetic structure between the paired-end SNPs (greater genomic resolution, less population variation) and the merged SNPs (lower genomic resolution, more population variation). Patterns in the merged SNP datasets were robust to missing data...
+
+Making a graphic across SNP datasets and filtering versions.
+```{r echo = TRUE, eval = FALSE}
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
+
+# A data frame for text labels
+lab_df <- data.frame(X = rep(-30, 6), Y = rep(20, 6)) %>%
+  dplyr::mutate(
+    SNP_set = c(
+      rep("Single-end", 2),
+      rep("Paired-end", 2),
+      rep("Merged", 2)
+    ),
+    filter_type = c(
+      rep(c("HWE filter", "HWE + missing data filters"), 3)
+    ),
+    filter_lab = c(
+      "139 indivs,\n 30085 SNPs", 
+      "105 indivs,\n 13241 SNPs",
+      "143 indivs,\n 6385 SNPs", 
+      "83 indivs,\n 2940 SNPs",
+      "282 indivs,\n 869 SNPs",
+      "216 indivs,\n 561 SNPs"
+    ),
+    SNP_set = factor(SNP_set, levels = c("Single-end", "Paired-end", "Merged")),
+    filter_type = factor(filter_type, levels = c("HWE filter", "HWE + missing data filters"))
+  )
+    
+lab_df
+
+all_snps_df <- data.frame(
+  X = c(
+    dapc1$ind.coord[, 1], 
+    dapc1.2$ind.coord[, 1],
+    dapc2$ind.coord[, 1], 
+    dapc2.2$ind.coord[, 1],
+    dapc3$ind.coord[, 1], 
+    dapc3.2$ind.coord[, 1]
+    ),
+  Y = c(
+    dapc1$ind.coord[, 2], 
+    dapc1.2$ind.coord[, 2],
+    dapc2$ind.coord[, 2], 
+    dapc2.2$ind.coord[, 2],
+    dapc3$ind.coord[, 2], 
+    dapc3.2$ind.coord[, 2]
+  )
+) %>%
+  dplyr::mutate(
+    SNP_set = c(
+      rep("Single-end", nrow(dapc1$ind.coord) + nrow(dapc1.2$ind.coord)),
+      rep("Paired-end", nrow(dapc2$ind.coord) + nrow(dapc2.2$ind.coord)),
+      rep("Merged", nrow(dapc3$ind.coord) + nrow(dapc3.2$ind.coord))
+    ),
+    filter_type = c(
+      rep("HWE filter", nrow(dapc1$ind.coord)), 
+      rep("HWE + missing data filters", nrow(dapc1.2$ind.coord)),
+      rep("HWE filter", nrow(dapc2$ind.coord)), 
+      rep("HWE + missing data filters", nrow(dapc2.2$ind.coord)),
+      rep("HWE filter", nrow(dapc3$ind.coord)), 
+      rep("HWE + missing data filters", nrow(dapc3.2$ind.coord))
+      ),
+    indiv = c(
+      dimnames(dapc1$ind.coord)[[1]], 
+      dimnames(dapc1.2$ind.coord)[[1]],
+      dimnames(dapc2$ind.coord)[[1]], 
+      dimnames(dapc2.2$ind.coord)[[1]],
+      dimnames(dapc3$ind.coord)[[1]], 
+      dimnames(dapc3.2$ind.coord)[[1]]
+      ),
+    site = c(
+      as.character(grp1), 
+      as.character(grp1.2),
+      as.character(grp2), 
+      as.character(grp2.2),
+      as.character(grp3), 
+      as.character(grp3.2)
+      ),
+    SNP_set = factor(SNP_set, levels = c("Single-end", "Paired-end", "Merged")),
+    filter_type = factor(filter_type, levels = c("HWE filter", "HWE + missing data filters")),
+    site = factor(site, levels = c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH"))
+  ) 
+
+# No zoom, numbers are labeled
+ggplot(data = all_snps_df, aes(x = X, y = Y)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6, aes(fill = site, color = site, shape = site)) +
+  facet_grid(rows = vars(SNP_set), cols = vars(filter_type), scales = "free", switch = "y") +
+  geom_text(data = lab_df, aes(x = X, y = Y, label = filter_lab), color = "black") +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  scale_fill_manual(values = cols) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+   guides(color = guide_legend(ncol = 1), fill = guide_legend(ncol = 1), shape = guide_legend(ncol = 1)) +
+  scale_y_continuous(limits = c(-25, 25)) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14),
+    strip.text = element_text(size = 14),
+    legend.direction = "vertical"
+  )
+
+ggsave(file.path(gpath, "DAPC_HWE_missingData_filters_3SNPsets.jpeg"), width = 8.5, height = 11, dpi = 300)
+
+# Zoom in, no labels
+ggplot(data = all_snps_df, aes(x = X, y = Y)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6, aes(fill = site, color = site, shape = site)) +
+  facet_grid(rows = vars(SNP_set), cols = vars(filter_type), scales = "free", switch = "y") +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  scale_fill_manual(values = cols) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  guides(color = guide_legend(ncol = 1), fill = guide_legend(ncol = 1), shape = guide_legend(ncol = 1)) +
+  scale_x_continuous(limits = c(-10, 10)) +
+  scale_y_continuous(limits = c(-10, 10)) +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14),
+    strip.text = element_text(size = 14),
+    legend.direction = "vertical"
+  )
+
+ggsave(file.path(gpath, "DAPC_HWE_missingData_filters_3SNPsets_zoomed.jpeg"), width = 8.5, height = 11, dpi = 300)
+
+```
