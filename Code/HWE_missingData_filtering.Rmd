@@ -36,7 +36,6 @@ glimpse(meta_dats)
 
 ```
 
-
 Read in the populations.sumstats.tsv files with HWE p-values. Significant p-values (< 0.05) mean a locus was out of equilibrium. Here, search for loci that were out of HWE in 2 population contrasts for the SE SNPs, and 3 populations for the PE and merged SNPs. Convert zeroes to -9999 to indicate missing data, and remove suffixes after sample names.
 
 ### SE SNPs, HWE filtering
