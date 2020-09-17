@@ -67,7 +67,7 @@ col_nms
 
 # Get the data lines
 sumstats_se <- read.table(file.path(file.path(res_path, "single_end/HWE"), "populations.sumstats.tsv"), sep = "\t", header = FALSE)
-glimpse(sumstats_se )
+glimpse(sumstats_se)
 
 # Add back headers
 names(sumstats_se) <- col_nms
@@ -88,12 +88,12 @@ HW_disequil <- sumstats_se %>%
   dplyr::summarise(
     n_pops = n_distinct(Pop_ID)
   ) %>%
-  filter(n_pops > 1) %>%
+  filter(n_pops == 3) %>% # Only get loci out of HWE in all 3 populations
   pull(locus_bp_ID)
 
 head(HW_disequil)
 
-# 4326 loci out of HWE
+# 4518 loci out of HWE
 length(HW_disequil)
 
 # 40129 loci total
@@ -105,7 +105,7 @@ sumstats_se %>%
   unique() %>%
   length()
 
-# If the total number of loci from the Stacks::populations run with a single population is the same as the HWE run here, then 35803 loci should remain after removing the HW_disequil loci
+# If the total number of loci from the Stacks::populations run with a single population is the same as the HWE run here, then 39611 loci should remain after removing the HW_disequil loci
 sumstats_se %>%
   dplyr::mutate(
     locus_bp_ID = paste(Locus_ID, Col, sep = "_")
@@ -155,7 +155,7 @@ head(names(struc))
 # Not sure why grep fails here...
 # struc2 <- struc[, -grep(paste(paste("^", HW_disequil, "$", sep = ""), collapse = "|"), names(struc))]
 struc2 <- struc[, -which(names(struc) %in% HW_disequil)]
-dim(struc2) # 278 rows = 139 diploid individuals, 30087 - 2 = 30085 loci remain
+dim(struc2) # 278 rows = 139 diploid individuals, 33728 - 2 = 33726 loci remain
 unique(struc2$pop) # A single population
 
 rm(list = "struc") # Remove this object as it takes up memory and won't be used in this format
@@ -325,8 +325,8 @@ struc3 <- struc2 %>%
   dplyr::select(-c(all_of(l2rem))) %>%
   droplevels()
 
-dim(struc2) # 139 individuals, 30085 loci
-dim(struc3) # 210 rows = 105 diploid individuals, 13243 - 2 = 13241 loci
+dim(struc2) # 139 individuals, 33726 loci
+dim(struc3) # 210 rows = 105 diploid individuals, 14383 - 2 = 14381 loci
 
 # Write out a new file as above for the SE libraries, then remove the struc2 and 3 objects
 
