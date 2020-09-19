@@ -40,10 +40,10 @@ glimpse(meta_dats)
 Read in the three HWE filtered Structure files: single-end, paired-end, merged, and the 2 versions of each (just HWE filtered, or additionally filtered by remvoing individuals and loci with a lot of missing data). These will be read in as genind objects. The number of loci per file is documented in HWE_filtering.Rmd.
 ```{r echo = TRUE, eval = FALSE}
 
-single_end <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_filter.str"), n.ind = 139, n.loc = 30085, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+single_end <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_filter.str"), n.ind = 139, n.loc = 33726, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
 str(single_end)
 
-single_end_filt <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_missingData_filters.str"), n.ind = 105, n.loc = 13241, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
+single_end_filt <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_missingData_filters.str"), n.ind = 105, n.loc = 14381, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
 str(single_end_filt)
 
 paired_end <- read.structure(file.path(file.path(res_path, "paired_end"), "paired_end_HWE_filter.str"), n.ind = 143, n.loc = 6385, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
@@ -403,7 +403,7 @@ data.frame(
 
 ```
 
-There are some interesting differences in population genetic structure between the paired-end SNPs (greater genomic resolution, less population variation) and the merged SNPs (lower genomic resolution, more population variation). Patterns in the merged SNP datasets were robust to missing data...
+There are some interesting differences in population genetic structure between the paired-end SNPs (greater genomic resolution, less population variation) and the merged SNPs (lower genomic resolution, more population variation). Patterns in the merged SNP datasets were robust to missing data.
 
 Making a graphic across SNP datasets and filtering versions.
 ```{r echo = TRUE, eval = FALSE}
@@ -539,3 +539,264 @@ ggplot(data = all_snps_df, aes(x = X, y = Y)) +
 ggsave(file.path(gpath, "DAPC_HWE_missingData_filters_3SNPsets_zoomed.jpeg"), width = 8.5, height = 11, dpi = 300)
 
 ```
+
+## Positive controls across sequencing types
+
+Check out positive controls across sequencing types (e.g. samples used in both the SE and PE libraries).
+```{r echo = TRUE, eval = FALSE}
+
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH")
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
+
+pos_cntrl_axYrs <- data.frame(
+  X = c(dapc3$ind.coord[, 1], dapc3.2$ind.coord[, 1]),
+  Y = c(dapc3$ind.coord[, 2], dapc3.2$ind.coord[, 2])
+  ) %>%
+  dplyr::mutate(
+    type = c(rep("HWE filter", nrow(dapc3$ind.coord)), rep("HWE + missing data filters", nrow(dapc3.2$ind.coord))),
+    indiv = c(dimnames(dapc3$ind.coord)[[1]], dimnames(dapc3.2$ind.coord)[[1]]),
+    site = c(as.character(grp3), as.character(grp3.2)),
+    site = factor(site, levels = all_sites),
+    type = factor(type, levels = c("HWE filter", "HWE + missing data filters"))
+  ) %>%
+  # Join with metadata to get positive control status
+  inner_join(
+    meta_dats %>%
+      dplyr::select(Sample_Name, Sequencing_Type, Positive_Control_AcrossYears),
+    by = c("indiv" = "Sample_Name")
+  ) %>%
+  # Filter by positive controls across years
+  filter(Positive_Control_AcrossYears == "Y") %>%
+  droplevels()
+glimpse(pos_cntrl_axYrs)
+nrow(pos_cntrl_axYrs)
+
+# Get individual IDs from sample names
+PE_cntrls <- pos_cntrl_axYrs %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  dplyr::mutate(
+    id = sapply(1:nrow(.), function(i){
+      paste(strsplit(indiv[i], split = "_")[[1]][3:5], collapse = "_")
+    })
+  ) %>%
+  pull(id) %>%
+  unique()
+
+SE_cntrls <- pos_cntrl_axYrs %>%
+  filter(Sequencing_Type == "Single-end") %>%
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  dplyr::mutate(
+    id = sapply(1:nrow(.), function(i){
+      paste(strsplit(indiv[i], split = "_")[[1]][3:5], collapse = "_")
+    })
+  ) %>%
+  pull(id) %>%
+  unique()
+
+head(PE_cntrls)
+head(SE_cntrls)
+
+length(PE_cntrls)
+length(SE_cntrls)
+
+# INV_WASH_WA2 was included in the PE_cntrls, but was dropped in early pre-processing due to very low coverage
+# Looks good to proceed
+SE_cntrls[which(!SE_cntrls %in% PE_cntrls)]
+
+# Make aesthetics consistent with the full set of samples
+tmp_sites <- levels(pos_cntrl_axYrs$site)
+tmp_sites  
+
+cols_cntrls <- cols[grep(paste(paste("^", tmp_sites, "$", sep = ""), collapse = "|"), all_sites)]
+
+pchs_cntrls <- pchs[grep(paste(paste("^", tmp_sites, "$", sep = ""), collapse = "|"), all_sites)]
+
+# Positive controls group together by sampling site
+pos_cntrl_axYrs %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = site)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs_cntrls) +
+  scale_color_manual(values = alpha(cols_cntrls, 0.75)) +
+  scale_fill_manual(values = cols_cntrls) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+# Making another graphic of the HWE and missing data filter dataset only, with one panel per sampling site, and labels for individuals to better assess how close positive controls are in genetic space across libraries
+# Here, made shapes the sequencing type
+shps <- c(21, 24)
+
+# Note that in these two plots, some positive controls will only show up once because they were likly dropped in the stricter filter imposed
+
+# With just symbols indicating sequencing type
+pos_cntrl_axYrs %>%
+  filter(type == "HWE + missing data filters") %>%
+  droplevels() %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = Sequencing_Type)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ site, scales = "free") +
+  scale_shape_manual(values = shps) +
+  scale_color_manual(values = alpha(cols_cntrls, 0.75)) +
+  scale_fill_manual(values = cols_cntrls) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+
+# With just text indicating unique ID per site
+pos_cntrl_axYrs %>%
+  filter(type == "HWE + missing data filters") %>%
+  # Get a unique ID that will be easier to compare across libraries than sample names
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  dplyr::mutate(
+    id = sapply(1:nrow(.), function(i){
+      strsplit(indiv[i], split = "_")[[1]][5]
+    })
+  ) %>%
+  droplevels() %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = Sequencing_Type)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_text(aes(label = id), color = "black", size = 4) +
+  facet_wrap(~ site, scales = "free") +
+  scale_shape_manual(values = shps) +
+  scale_color_manual(values = alpha(cols_cntrls, 0.75)) +
+  scale_fill_manual(values = cols_cntrls) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+```
+
+Positive controls across sequencing types (e.g. individuals sequenced in both the 2015 single-end and 2019 paired-end libraries) occupied very similar areas of low-dimensional acoustic space within their respective sampling sites. Indeed, some individuals overlapped entirely from one sequencing type to another. In other cases, there was some separation between sequencing types in genetic space, which is likely due to differences in coverage leading to slightly different genotype calls for some individuals.
+
+## Positive controls within libraries
+
+For the paired-end libraries, some individuals were sequenced twice as positive controls on the same plate.
+```{r echo = TRUE, eval = FALSE}
+
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "CNCT", "FLOR", "ILLI", "WASH")
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "gold4",  "gold2", "yellow2", "orange")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
+
+pos_cntrl_wtnPE <- data.frame(
+  X = c(dapc3$ind.coord[, 1], dapc3.2$ind.coord[, 1]),
+  Y = c(dapc3$ind.coord[, 2], dapc3.2$ind.coord[, 2])
+  ) %>%
+  dplyr::mutate(
+    type = c(rep("HWE filter", nrow(dapc3$ind.coord)), rep("HWE + missing data filters", nrow(dapc3.2$ind.coord))),
+    indiv = c(dimnames(dapc3$ind.coord)[[1]], dimnames(dapc3.2$ind.coord)[[1]]),
+    site = c(as.character(grp3), as.character(grp3.2)),
+    site = factor(site, levels = all_sites),
+    type = factor(type, levels = c("HWE filter", "HWE + missing data filters"))
+  ) %>%
+  # Join with metadata to get positive control status
+  inner_join(
+    meta_dats %>%
+      dplyr::select(Sample_Name, Sequencing_Type, Positive_Control_2019),
+    by = c("indiv" = "Sample_Name")
+  ) %>%
+  # Filter by positive controls in the PE libraries
+  filter(Positive_Control_2019 == "Y") %>%
+  droplevels()
+glimpse(pos_cntrl_wtnPE)
+nrow(pos_cntrl_wtnPE)
+
+# Get individual IDs from sample names
+PE_cntrls <- pos_cntrl_wtnPE %>%
+  filter(Sequencing_Type == "Paired-end") %>%
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  dplyr::mutate(
+    id = sapply(1:nrow(.), function(i){
+      paste(strsplit(indiv[i], split = "_")[[1]][3:5], collapse = "_")
+    })
+  ) %>%
+  pull(id) %>%
+  unique()
+
+# 4 individuals included as positive controls, e.g. sequenced twice in the same library
+PE_cntrls
+length(PE_cntrls)
+
+meta_dats %>%
+  filter(Positive_Control_2019 == "Y") %>%
+  pull(Sample_Name) %>%
+  unique()
+
+# Make aesthetics consistent with the full set of samples
+tmp_sites <- levels(pos_cntrl_wtnPE$site)
+tmp_sites  
+
+cols_cntrls <- cols[grep(paste(paste("^", tmp_sites, "$", sep = ""), collapse = "|"), all_sites)]
+
+pchs_cntrls <- pchs[grep(paste(paste("^", tmp_sites, "$", sep = ""), collapse = "|"), all_sites)]
+
+# Positive controls group together by sampling site
+pos_cntrl_wtnPE %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = site)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs_cntrls) +
+  scale_color_manual(values = alpha(cols_cntrls, 0.75)) +
+  scale_fill_manual(values = cols_cntrls) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+# Making another graphic with labels for individuals to better assess how close positive controls are in genetic space within the PE libraries
+
+# With just text indicating unique ID per site
+pos_cntrl_wtnPE %>%
+  # filter(type == "HWE + missing data filters") %>%
+  # Get a unique ID that will be easier to compare across libraries than sample names
+  dplyr::mutate(
+    indiv = as.character(indiv)
+  ) %>%
+  dplyr::mutate(
+    id = sapply(1:nrow(.), function(i){
+      strsplit(indiv[i], split = "_")[[1]][5]
+    })
+  ) %>%
+  droplevels() %>%
+  ggplot(aes(x = X, y = Y, fill = site, color = site, shape = Sequencing_Type)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_text(aes(label = id), color = "black", size = 4) +
+  facet_wrap(~ type, scales = "free") +
+  scale_shape_manual(values = shps) +
+  scale_color_manual(values = alpha(cols_cntrls, 0.75)) +
+  scale_fill_manual(values = cols_cntrls) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+```
+
+These positive controls look pretty good. The duplicated individuals fall within genetic space for their same sampling site, and are close to each other in genetic space. The second sample for L98 is missing in the right panel due to the stricter filter imposed after HWE on missing data per individual and locus. These visuals of positive controls served to validate the data quality of libraries, and the patterns we're seeing in genetic space for the single-end, paired-end, and merged SNP datasets. 
+
+Proceed by using the HWE + missing data filtered version of the merged SNPs for making Bayescan input files to detect outlier loci, and make sure to remove positive controls. When positive controls were across sequencing types, remove the SE data when both SE and PE data are available for the same control (the PE data is higher quality due to removal of PCR duplicates). Take the SE data if only SE is available. For the positive controls sequenced twice within the PE libraries that are both present in the strictly filtered version of the SNP dataset, randomly select one sample per individual. 
