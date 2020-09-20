@@ -27,6 +27,9 @@ xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Bar
 # Path to Stacks output, including the HWE filtered SNPs in Structure format 
 res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
 
+# Path where BayeScan files will be written
+out_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BayeScan_mergedSNPs"
+
 gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
 
 seed <- 401
@@ -41,12 +44,12 @@ glimpse(meta_dats)
 
 ```
 
-Read in the HWE and missing data filtered merged SNPs.
+Read in the HWE and missing data filtered merged SNPs with duplicated positive controls dropped.
 ```{r echo = TRUE, eval = TRUE}
 
-struc <- read.table(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters.str"), skip = 1)
+struc <- read.table(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters_noPosControlDups.str"), skip = 1)
 # glimpse(struc)
-dim(struc) # 432 rows, 563 columns
+dim(struc) # 346 rows (173 individuals), 563 columns
 head(struc[, 1]) # Sample names contained in the first column
 head(struc[, 2]) # Population ID (single population) contained in second column
 names(struc)
@@ -54,7 +57,7 @@ names(struc)
 # Get the column headers
 
 # Read the first line of metadata, these are the column names
-col_nms <- readLines(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters.str"), n = 1)
+col_nms <- readLines(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters_noPosControlDups.str"), n = 1)
 col_nms
 
 # Split out the column headers into a vector, one element per header
@@ -122,22 +125,22 @@ struc_tmp <- struc %>%
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  slice(1:50) %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+#   slice(1:50) %>%
+#   dplyr::select(indiv, pop) %>%
+#   View()
 
 # Write a new file
 file_nm <- "BS_01_AllInvasiveVersusNative.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -166,21 +169,21 @@ dim(struc_tmp) # 173 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+#   dplyr::select(indiv, pop) %>%
+#   View()
 
 # Write a new file
 file_nm <- "BS_02_AllInvasiveVersusUruguay.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -209,21 +212,21 @@ nrow(struc_tmp)/2 # 169 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+#   dplyr::select(indiv, pop) %>%
+#   View()
 
 # Write a new file
 file_nm <- "BS_03_AllInvasiveVersusArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -252,21 +255,21 @@ nrow(struc_tmp)/2 # 144 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+#   dplyr::select(indiv, pop) %>%
+#   View()
 
 # Write a new file
 file_nm <- "BS_04_AllInvasiveVersusNorthArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -295,21 +298,21 @@ nrow(struc_tmp)/2 # 152 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_05_AllInvasiveVersusSouthArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -338,21 +341,21 @@ nrow(struc_tmp)/2 # 133 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_06_UnitedStatesVersusUruguay.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -381,21 +384,21 @@ nrow(struc_tmp)/2 # 128 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_07_UnitedStatesVersusArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -424,21 +427,21 @@ nrow(struc_tmp)/2 # 103 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_08_UnitedStatesVersusNorthArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -467,21 +470,21 @@ nrow(struc_tmp)/2 # 111 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_09_UnitedStatesVersusSouthArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -510,21 +513,21 @@ nrow(struc_tmp)/2 # 88 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_10_SpainVersusUruguay.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -553,21 +556,21 @@ nrow(struc_tmp)/2 # 83 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_11_SpainVersusArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -596,21 +599,21 @@ nrow(struc_tmp)/2 # 58 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_12_SpainVersusNorthArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -639,21 +642,21 @@ nrow(struc_tmp)/2 # 66 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_13_SpainVersusSouthArgentina.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -682,21 +685,21 @@ nrow(struc_tmp)/2 # 127 individuals
 
 # Looks good
 glimpse(struc_tmp[, 1:10])
-struc_tmp %>%
-  dplyr::select(indiv, pop) %>%
-  View()
+# struc_tmp %>%
+  # dplyr::select(indiv, pop) %>%
+  # View()
 
 # Write a new file
 file_nm <- "BS_14_UnitedStatesVersusSpain.str"
-file.remove(file.path(file.path(res_path, "merged"), file_nm))
+file.remove(file.path(out_path, file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
 invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
 }))
 
@@ -765,15 +768,15 @@ invisible(pblapply(1:length(inv_sites), function(i){
   # Write a new file
   file_nm <- paste("BS_15-", i, "_", inv_sites[i], "_", "VersusAllNative.str", sep = "")
   # file_nm
-  file.remove(file.path(file.path(res_path, "merged"), file_nm))
+  file.remove(file.path(out_path, file_nm))
 
   header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-  cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
   invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
   }))
   
@@ -844,15 +847,15 @@ invisible(pblapply(1:length(inv_sites), function(i){
   # Write a new file
   file_nm <- paste("BS_16-", i, "_", inv_sites[i], "_", "VersusUruguay.str", sep = "")
   # file_nm
-  file.remove(file.path(file.path(res_path, "merged"), file_nm))
+  file.remove(file.path(out_path, file_nm))
 
   header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-  cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
   invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
   }))
   
@@ -923,15 +926,15 @@ invisible(pblapply(1:length(inv_sites), function(i){
   # Write a new file
   file_nm <- paste("BS_17-", i, "_", inv_sites[i], "_", "VersusArgentina.str", sep = "")
   # file_nm
-  file.remove(file.path(file.path(res_path, "merged"), file_nm))
+  file.remove(file.path(out_path, file_nm))
 
   header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-  cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
   invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
   }))
   
@@ -1002,15 +1005,15 @@ invisible(pblapply(1:length(inv_sites), function(i){
   # Write a new file
   file_nm <- paste("BS_18-", i, "_", inv_sites[i], "_", "VersusNorthArgentina.str", sep = "")
   # file_nm
-  file.remove(file.path(file.path(res_path, "merged"), file_nm))
+  file.remove(file.path(out_path, file_nm))
 
   header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-  cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
   invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
   }))
   
@@ -1081,15 +1084,15 @@ invisible(pblapply(1:length(inv_sites), function(i){
   # Write a new file
   file_nm <- paste("BS_19-", i, "_", inv_sites[i], "_", "VersusSouthArgentina.str", sep = "")
   # file_nm
-  file.remove(file.path(file.path(res_path, "merged"), file_nm))
+  file.remove(file.path(out_path, file_nm))
 
   header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-  cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
   invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
   }))
   
@@ -1134,15 +1137,15 @@ invisible(pblapply(1:iter, function(i){
   file_nm <- paste("BS_20-", i, "_RandomContrast.str", sep = "")
   # file_nm
   
-  file.remove(file.path(file.path(res_path, "merged"), file_nm))
+  file.remove(file.path(out_path, file_nm))
 
   header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-  cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(header, file = file.path(out_path, file_nm), append = TRUE)
 
   invisible(pbsapply(1:nrow(struc_tmp), function(i){
   
-    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+    cat(c(struc_tmp$indiv[i], "\t", struc_tmp$pop[i], "\t", paste(paste(struc_tmp[i, -grep("^indiv$|^pop$", names(struc_tmp))], collapse = " "), "\n", sep = "")), file = file.path(out_path, file_nm), append = TRUE)
   
   }))
   
@@ -1151,8 +1154,241 @@ invisible(pblapply(1:iter, function(i){
 # Opened the files in Vim to doublecheck structure, these look good
 
 # 64 Bayescan files, including 5 random contrasts as validation
-length(list.files(path = file.path(file.path(res_path, "merged")), pattern = "BS_*"))
+length(list.files(path = file.path(out_path), pattern = "BS_*"))
 
 ```
 
-Next steps: positive control validations, remove positive controls from the filtered Structure file used as input above, remake BayeScan files, do PGDSpider conversions, start BayeScan runs, start BLASTing to mitochondrial genome as well
+# Convert Structure to BayeScan format
+
+Reworking code I'd written previously for analysis of the single-end libraries. Although BayeScan performs faster when monomorphic loci are dropped, I did not drop these here. I believe PGDSpider doesn't either, and for the merged SNPs, we're working with a small set of loci anyways (hundreds and not thousands).
+
+Bayescan format: 
+Header with [loci]=NumberofLoci
+Blank line
+[populations]=Totalpopulations
+Blank line
+[pop]=1
+1(two spaces)40(two spaces)2(three spaces)0(two spaces)40
+One line per locus as above, until done for the first population
+Blank line
+[pop]=2
+Locus lines as above
+
+Per locus, the numbers are as follows: Consecutive numeric identifier for the given locus, total number of genes for the marker in the population (if diploid, then twice the number of individuals, can be modified to account for missing data per locus), The number of alleles for the given locus (must be the same across populations, and here will always be 2), all subsequent numbers are the number of observations for each allele in the population for the given locus, and must sum to the number of genes in the population.
+
+In the example line above, this is the 1st locus with 40 total genes in the population and 2 alleles. The first allele was observed 0 times, and the second was observed 40 times.
+
+Make a function to return the locus information in the same format as above per population. The function takes a Structure file as input, and returns locus information in BayeScan format.
+```{r echo = TRUE, eval = FALSE}
+
+pop_locus_info <- function(X, mrkrs, NA_char){ 
+  
+  pops <- length(unique(X$pop))
+  
+  # Iterate over populations
+  pop_list <- pblapply(1:pops, function(i){
+    
+    # Subset the Structure input file by the given population
+    X_tmp <- X[X$pop == i, ]
+    
+    # Iterate over loci per population
+    tmp_loci <- unlist(pblapply(1:length(mrkrs), function(j){
+      
+      # Subset the data for the given population to obtain just the given locus
+      tmp <- X_tmp[, grep(paste("^", paste(mrkrs[j], "$", sep = ""), sep = ""), colnames(X_tmp))]
+  
+      # Account for missing data at the given locus to avoid counting missing data as an allele
+      if(NA_char %in% tmp){
+        n.alleles <- length(unique(tmp)) - 1
+      } else {
+        n.alleles <- length(unique(tmp))
+      }
+  
+      # Account for missing data at the given locus to make the number of genes in the population reflect any missing data across individuals
+      missing <- length(which(tmp == NA_char))
+      
+      # For diploids, the number of genes should be twice the number of individuals that have data
+      n.genes <- length(tmp) - missing
+  
+      # Insert message about loci with more than 2 alleles 
+      # All loci have 2 alleles, so any loci with 3 means that the NA_char was not specified correctly
+      if(n.alleles == 3){
+        stop("Are you using the correct NA_char to indicate missing data?")
+      }
+  
+      # Printing the number of diploiad observations per allele
+      # Account for loci with a single allele
+      if(n.alleles == 1){
+    
+        tmp2 <- unique(tmp)[grep(NA_char, unique(tmp), invert = TRUE)]
+    
+        first.allele <- length(which(tmp == tmp2[1]))
+        second.allele <- c(0)
+        n.obs.alleles <- paste(c(first.allele, second.allele), collapse = "  ")
+    
+      # Stop if sum of observed alleles not equal to total genes at this locus
+      if(first.allele != n.genes){
+        stop(paste("j = ", j, ", n.alleles == 1: Observed alleles at this locus are not equal to total expected
+           genes (number diploid individuals * 2)"))
+      }
+    
+    # If the given locus has 2 alleles, account for order and numeric coding of SNPs when writing out the locus info
+    # PGDSpider always starts with the lower allele first (possible numeric values of 1, 2, 3, 4 in Structure genotypes)
+    } else if(n.alleles == 2){
+    
+      tmp2 <- unique(tmp)[grep(NA_char, unique(tmp), invert = TRUE)]
+    
+      # If the second allele is a larger number than the first (e.g. 4 versus 2)
+      if(tmp2[2] > tmp2[1]){
+        first.allele <- length(which(tmp == tmp2[1]))
+        second.allele <- length(which(tmp == tmp2[2]))
+        n.obs.alleles <- paste(c(first.allele, second.allele), collapse = "  ")
+      
+        # Stop if sum of observed alleles not equal to total genes at this locus
+        if(first.allele + second.allele != n.genes){
+          stop(paste("j = ", j, ", n.alleles == 2: Observed alleles at this locus are not equal to total expected
+           genes (number diploid individuals * 2)"))
+        }
+      }
+    
+      # If the first allele is a larger number than the second
+      if(tmp2[1] > tmp2[2]){
+        first.allele <- length(which(tmp == tmp2[2]))
+        second.allele <- length(which(tmp == tmp2[1]))
+        n.obs.alleles <- paste(c(first.allele, second.allele), collapse = "  ")
+      
+        # Stop if sum of observed alleles not equal to total genes at this locus
+        if(first.allele + second.allele != n.genes){
+            stop(paste("j = ", j, ", Observed alleles at this locus are not equal to total expected
+           genes (number diploid individuals * 2)"))
+          }
+        }
+      }
+      
+      # Concatenate the information for the given locus in the given population
+      locus_info <- paste(
+        paste(
+          c(# If the locus index is less than 3 characters, pad with whitespace to 3 characters
+            ifelse(nchar(j) < 3, str_pad(j, width = 3, side = "left"), j),
+            # Add 2 leading whitespace characters to n.genes and n.alleles
+            str_pad(n.genes, width = nchar(n.genes) + 2, side = "left"),
+            str_pad(n.alleles, width = nchar(n.alleles) + 2, side = "left"),
+            # Add 3 leading whitespace characters to n.obs.alleles
+            str_pad(n.obs.alleles, width = nchar(n.obs.alleles) + 3, side = "left")
+            ), 
+          collapse = ""), 
+        "\n", sep = "")
+      
+      # locus_info
+      
+      return(locus_info)
+       
+    }))
+    
+    # str(tmp_loci)
+    # head(tmp_loci)
+    return(tmp_loci)
+    
+  })
+
+  # str(pop_list)
+  return(pop_list)
+
+}
+
+```
+
+Make another function that will run the function over all Structure files generated above. This loop will print BayeScan headers and locus information per population to a new .txt file.
+```{r echo = TRUE, eval = FALSE}
+
+Structure2Bayescan <- function(file_nms, n.pops, fpath){
+  
+  invisible(pblapply(1:length(file_nms), function(z){
+  
+    # Read in the genotypes from the given Structure file
+    struc <- read.table(file.path(fpath, file_nms[z]), skip = 1)
+    # glimpse(struc)
+    # dim(struc)
+
+    # Get the column headers
+    # Read the first line of metadata, these are the column names
+    col_nms <- readLines(file.path(fpath, file_nms[z]), n = 1)
+    # col_nms
+
+    # Split out the column headers into a vector, one element per header
+    mrkrs <- strsplit(strsplit(col_nms, split = "\t")[[1]][3], split = "[[:space:]]")[[1]]
+    # head(mrkrs)
+    # length(mrkrs)
+
+    # Get rid of the space that precedes the first locus column header
+    mrkrs <- mrkrs[-which(mrkrs == "")]
+    # head(mrkrs)
+    # length(mrkrs)
+
+    # Add the individual and population column headers that precede the locus column names
+    col_nms <- c("indiv", "pop", mrkrs)
+    # head(col_nms)
+    # length(col_nms)
+
+    # Add back the updated column names
+    # Looks good
+    names(struc) <- col_nms
+    # glimpse(struc[, 1:10])
+
+    # Create the overall BayeScan header with the number of loci and populations (whoch will always be 2 per file), and the first population header
+    first_header <- list(
+      c(paste("[loci]=", length(mrkrs), "\n\n", "[populations]=", n.pops, "\n", sep = "")), 
+      c(paste("[pop]=", 1, "\n", sep = ""))
+    )
+      
+    # Get the locus info lines per population
+    # X is the Structure object with indiv and pop column headers
+    pop_locus_list <- pop_locus_info(X = struc, mrkrs = mrkrs, NA_char = -9999)
+
+    # Create the header for the second population
+    second_pop_header <- paste("[pop]=", 2, "\n", sep = "")
+  
+    # Initialize the BayeScan file name, change just the extension  
+    new_file <- file.path(fpath, paste(gsub(".str$", "", file_nms[z]), ".txt", sep = ""))
+  
+    # Remove any previous version of the given file if it exists
+    if(file.exists(new_file)) file.remove(new_file)
+      
+    # Write out the headers and locus info per population to this new file
+    cat(c(
+      unlist(first_header[[1]]), 
+      "\n",
+      unlist(first_header[[2]]), 
+      unlist(pop_locus_list[[1]]),
+      "\n",
+      second_pop_header, 
+      unlist(pop_locus_list[[2]])), 
+      file = new_file, 
+      append = TRUE,
+      sep = ""
+    )
+  
+  }))
+  
+}
+
+
+# Testing
+# file_nms <- "BS_01_AllInvasiveVersusNative.str"
+# z <- 1
+# fpath <- file.path(out_path)
+# n.pops <- 2
+
+fpath <- out_path
+file_nms <- list.files(path = fpath, pattern = "^BS_.*.str$")
+file_nms
+
+# Running the function for all Structure files generated above
+Structure2Bayescan(file_nms = file_nms, n.pops = 2, fpath = fpath)
+
+# Opened 6 files in Vim to doublecheck BayeScan structure, these looked great
+list.files(fpath, pattern = ".txt$")
+
+```
+
+Next, need to upload these files to Discovery along with previous Bayescan code, update the Bayescan script, and start a run on Discovery, troubleshoot as needed.
