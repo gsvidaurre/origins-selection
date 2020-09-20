@@ -79,6 +79,8 @@ glimpse(struc[, 1:10])
 
 ```
 
+# Write out files for population contrasts
+
 These are the general population contrasts I'm considering. Some of these will entail multiple files/comparisons (e.g. 14-18):
 
 1) All invasive sites versus all native sites
