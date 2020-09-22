@@ -13,7 +13,6 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 Purpose: Subset the Structure file of the HWE and missing data filtered merged SNPs to make versions representing all pairwise population comparisons to be executed in BayeScan. The files generated in this script will be in Structure format, and will be converted to BayeScan formt using a script to execute PGDSpider.
 
-Note that I did not filter out positive controls within or across libraries here. Need to do some validations of positive controls in the exploratory visualizations, and filter these out if possible, then remake these BayeScan input files.
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
 rm(list = ls())
