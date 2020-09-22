@@ -1,0 +1,28 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 20 September 2020 (modified from 2017 code)
+## Updated 20 September 2020
+
+## Purpose: Run BayeScan across all population contrasts of interest to detect loci under strong positive selection. Population contrasts include 5 randomization tests to assess the likelihood of detecting true outliers.  
+
+#SBATCH --job-name BayeScan
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 2000M # default is 500M
+#SBATCH --time 6-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load bayescan
+
+src=/scratch/gsmithvi/BayeScan_mergedSNPs
+
+# This calls BayeScan over every population contrast in the given directory with the default iterations (n = 5000), thinning interval size (thin = 10), pilot runs (nbp = 20), pilot run length (pilot = 5000) and burn-in length (burn = 50000), as well as prior odds for the neutral model (pr_odds = 10), all other arguments not specified here are taken as the default as well
+for f in $src/*.txt; do 
+	bayescan $f -od $src -threads 4 -n 5000 -thin 10 -nbp 20 -pilot 5000 -burn 50000 -pr_odds 10;
+done

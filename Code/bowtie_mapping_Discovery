@@ -1,0 +1,40 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 06 September 2020
+## Updated 06 September 2020
+
+## Purpose: Use bowtie2 to map the pre-processed SE and forward PE reads to the indexed shared contigs FASTA file. If this goes as planned, mapping the SE and forward PE reads to the same set of contigs (generated from the PE reads) should yield a shared set of SNPs. 
+
+#SBATCH --job-name bowtie_map
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1000M # default is 500M
+#SBATCH --time 4-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load bowtie2
+module load samtools
+
+path=/scratch/gsmithvi/stacks/merged/input
+log_file=$path/bowtie2_map.oe
+
+# Loop over each .fq file per sample to perform mapping and create a sorted BAM file per sample
+files=`for i in $path; do
+        find $i*/ -type f -iname "*.fq";
+done`
+
+for i in $files; do
+
+	bowtie2 -x $path/shared_contigs -U $i -S ${i%.fq}.sam &> $log_file;
+	
+	samtools view -bS ${i%.fq}.sam -o ${i%.fq}.bam; 
+
+	samtools sort ${i%.fq}.bam -o ${i%.fq}.sorted.bam;
+	
+done

@@ -296,7 +296,37 @@ length(c(names(neutral_SNPs)[-grep("indiv|pop", names(neutral_SNPs))],
 
 ```
 
-Wrote the neutral SNPs out as a new file in Structure format.
+Make sure to update the population identifiers to be integers for sampling sites, in the order in which plotting will be done in distruct. This information won't be used by Structure, given how I'm parameterizing the runs. Finally, changed -9999 for missing data to -9.
+```{r echo = TRUE, eval = TRUE}
+
+# Population identifiers by country, then sampling site
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "FLOR", "ILLI", "WASH", "CNCT")
+
+# Update population identifiers
+indivs <- neutral_SNPs$indiv
+
+# i <- 1
+sites <- sapply(1:length(indivs), function(i){
+  meta_dats %>%
+    filter(Sample_Name == indivs[i]) %>%
+    pull(Site_Code) %>%
+    as.character()
+})
+
+# Make integers in the order of all sites above, and in order by diploid individuals 
+neutral_SNPs$pop <- as.numeric(factor(sites, levels = all_sites))
+outlier_SNPs$pop <- as.numeric(factor(sites, levels = all_sites))
+
+# Change missing data value
+neutral_SNPs[neutral_SNPs == -9999] <- -9
+outlier_SNPs[outlier_SNPs == -9999] <- -9
+
+glimpse(neutral_SNPs)
+glimpse(outlier_SNPs)
+
+```
+
+Wrote the neutral SNPs out as a new file in Structure format. Make sure to set sep = "" in cat() to avoid extra spaces.
 ```{r echo = TRUE, eval = TRUE}
 
 # Write a new file for the neutral SNPs
@@ -305,11 +335,11 @@ file.remove(file.path(file.path(res_path, "merged"), file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE, sep = "")
 
 invisible(pbsapply(1:nrow(neutral_SNPs), function(i){
   
-  cat(c(neutral_SNPs$indiv[i], "\t", neutral_SNPs$pop[i], "\t", paste(paste(neutral_SNPs[i, -grep("^indiv$|^pop$", names(neutral_SNPs))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(neutral_SNPs$indiv[i], "\t", neutral_SNPs$pop[i], "\t", paste(paste(neutral_SNPs[i, -grep("^indiv$|^pop$", names(neutral_SNPs))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE, sep = "")
   
 }))
 
@@ -327,11 +357,11 @@ file.remove(file.path(file.path(res_path, "merged"), file_nm))
 
 header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
 
-cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE, sep = "")
 
 invisible(pbsapply(1:nrow(outlier_SNPs), function(i){
   
-  cat(c(outlier_SNPs$indiv[i], "\t", outlier_SNPs$pop[i], "\t", paste(paste(outlier_SNPs[i, -grep("^indiv$|^pop$", names(outlier_SNPs))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE)
+  cat(c(outlier_SNPs$indiv[i], "\t", outlier_SNPs$pop[i], "\t", paste(paste(outlier_SNPs[i, -grep("^indiv$|^pop$", names(outlier_SNPs))], collapse = " "), "\n", sep = "")), file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE, sep = "")
   
 }))
 

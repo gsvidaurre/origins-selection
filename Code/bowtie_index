@@ -1,0 +1,26 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 04 September 2020
+## Updated 04 September 2020
+
+## Purpose: Use bowtie2 to index the shared contigs FASTA file for mapping SE and PE reads. This script only needs to be run once. bowtie version 2.3.5.1 will be called by default (determined this by running module avail)
+
+#SBATCH --job-name bowtie_index
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 800M # default is 500M
+#SBATCH --time 2-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load bowtie2
+
+path=/scratch/gsmithvi/stacks/merged/input
+log_file=$path/bowtie2_index.oe
+
+bowtie2-build $path/shared_contigs.fa $path/shared_contigs &> $log_file

@@ -1,0 +1,50 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 09 September 2020
+## Updated 09 September 2020
+
+## Purpose: Find loci out of HWE across all 3 sets of SNPs, using population maps with either 3 or 4 population contrasts to identify loci out of HWE that are most likely to represent sequencing errors.  
+
+#SBATCH --job-name HWE
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1500M # default is 500M
+#SBATCH --time 5-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load stacks
+
+######## SE SNPs
+
+#in_path=/scratch/gsmithvi/stacks/single_end
+#out_path=/scratch/gsmithvi/stacks/single_end/HWE
+#popmap=/scratch/gsmithvi/info/popmap_SE_HWE.txt
+#poplog_file=$out_path/populations_SE_HWE.oe
+
+#populations --in-path $in_path --out-path $out_path --popmap $popmap -t 4 -r 0.80 --min-maf 0.05 --write-single-snp --hwe --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+######## PE SNPs
+
+#in_path=/scratch/gsmithvi/stacks/paired_end
+#out_path=/scratch/gsmithvi/stacks/paired_end/HWE
+#popmap=/scratch/gsmithvi/info/popmap_PE_HWE.txt
+#poplog_file=$out_path/populations_PE_HWE.oe
+
+# populations --in-path $in_path --out-path $out_path --popmap $popmap -t 4 -r 0.80 --min-maf 0.05 --write-single-snp --hwe --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+
+######## Merged SNPs
+
+in_path=/scratch/gsmithvi/stacks/merged/sorted_bams
+out_path=/scratch/gsmithvi/stacks/merged/HWE
+popmap=/scratch/gsmithvi/info/popmap_merged_HWE.txt
+poplog_file=$out_path/populations_merged_HWE.oe
+
+populations --in-path $in_path --out-path $out_path --popmap $popmap -t 4 -r 0.80 --min-maf 0.05 --write-single-snp --hwe --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+

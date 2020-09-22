@@ -1,0 +1,44 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 20 July 2020
+## Updated 31 August 2020
+
+## Purpose: Run Stacks de novo genotyping pipeline for all pre-processed samples in the SE libraries. One individual will be dropped due to low coverage. Here, keeping m constant at 3, and using the optimized values for M and n parameters (M = 5, n = M).
+
+#SBATCH --job-name SE_denovo
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 6000M # default is 500M
+#SBATCH --time 5-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load stacks
+
+map_path=/scratch/gsmithvi/info
+in_path=/scratch/gsmithvi/cleaned/kmer_filter/single_end
+out_path=/scratch/gsmithvi/stacks/single_end
+
+popmap=$map_path/popmap_SE.txt
+log_file=$out_path/denovo_map.oe
+
+# Run denovo_map.pl with m = 3, M = n = 5, also execute the populations unit to keep only loci shared by 80% of the samples (-r 80)
+# -T is the number of cores, -X are options for specific pipeline components
+
+M=5
+
+# Moved -m 3 for ustacks to a customized pipeline component call, otherwise the run fails, since -m is not an accepted denovo_map.pl flag
+# Added -X "ustacks:-m 3", and fixed "-min_maf" to "--min_maf"
+# 28 August 2020: --min_maf specified wrong, fixed this below and reran just populations
+# 31 August 2020 Running the full pipeline again with Stacks version 2.53
+denovo_map.pl --samples $in_path --popmap $popmap -o $out_path -M $M -n $M -T 4 -X "ustacks:-m 3" -X "populations:-r 0.80" -X "populations:--min-maf 0.05" -X "populations:--write-single-snp" -X "populations:--fstats" -X "populations:--fasta-loci" -X "populations:--vcf" -X "populations:--genepop" -X "populations:--structure" &> $log_file
+
+# If necessary, rerun just populations
+# Using out_path as the in path because this is where the catalog files are
+# pop_log_file=$out_path/populations.oe
+# populations --in-path $out_path --out-path $out_path --popmap $popmap -t 4 -r 0.80 --min-maf 0.05 --write-single-snp --fstats --fasta-loci --vcf --genepop --structure &> $pop_log_file

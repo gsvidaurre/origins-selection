@@ -1,0 +1,30 @@
+#!/bin/bash
+# G.Smith-Vidaurre
+# 04 August 2020
+
+# Purpose: Rename the files output by kmer_filter (suffix .1.1.fil.fq and .2.2.fil.fq) to a file naming format for paired-end files that denovo_map.pl will recognize
+
+src=/scratch/gsmithvi/cleaned/kmer_filter/paired_end
+
+# Get current first file names
+files1=`for i in $src; do
+        find $i*/ -type f -iname "*.1.1.fil.fq";
+done`
+
+# Rename first files one by one
+for file in $files1; do
+	mv "$file" "${file/.1.1.fil.fq/.1.fq}"
+	# echo $file # checking
+	# echo "${file/.1.1.fil.fq/.1.fq}" # checking
+done
+
+# Repeat for the second paired-end files
+files2=`for i in $src; do
+        find $i*/ -type f -iname "*.2.2.fil.fq";
+done`
+
+for file in $files2; do
+        mv "$file" "${file/.2.2.fil.fq/.2.fq}"
+done
+
+

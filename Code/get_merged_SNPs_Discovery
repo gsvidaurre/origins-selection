@@ -1,0 +1,33 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 06 September 2020
+## Updated 07 September 2020
+
+## Purpose: Run gstacks and then populations to get shared SNPs across the pre-processed SE and forward PE reads. If this goes as planned, mapping the SE and forward PE reads to the same set of contigs (generated from the PE reads) should yield a shared set of SNPs. 
+
+#SBATCH --job-name shared_SNPs
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1500M # default is 500M
+#SBATCH --time 5-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load stacks
+
+in_path=/scratch/gsmithvi/stacks/merged/sorted_bams
+out_path=/scratch/gsmithvi/stacks/merged
+popmap=/scratch/gsmithvi/info/popmap_sharedSNPs.txt
+glog_file=$in_path/gstacks_shared_SNPs.oe
+poplog_file=$out_path/populations_shared_SNPs.oe
+
+gstacks -I $in_path -O $in_path -M $popmap -t 8 &> $glog_file
+
+populations --in-path $in_path --out-path $out_path --popmap $popmap -t 4 -r 0.80 --min-maf 0.05 --write-single-snp --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+

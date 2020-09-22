@@ -14,7 +14,7 @@
 #SBATCH --mail-type BEGIN ## will get an email when job starts
 #SBATCH --mail-type END ## will get an email when job ends
 #SBATCH --mail-type FAIL ## will get email when job fails
-#SBATCH --get-user-env ## wpass on environmental settings
+#SBATCH --get-user-env ## pass on environmental settings
 
 module load stacks
 
