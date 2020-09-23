@@ -333,7 +333,7 @@ Wrote the neutral SNPs out as a new file in Structure format. Make sure to set s
 file_nm <- "merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str"
 file.remove(file.path(file.path(res_path, "merged"), file_nm))
 
-header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
+header <- c("\t","\t", paste(paste(names(neutral_SNPs)[-grep("^indiv$|^pop$", names(neutral_SNPs))]), collapse = " "), "\n", sep = "")
 
 cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE, sep = "")
 
@@ -355,7 +355,7 @@ Wrote the outlier SNPs out as a new file in Structure format.
 file_nm <- "merged_HWE_missingData_filters_noPosControlDups_outlierSNPs.str"
 file.remove(file.path(file.path(res_path, "merged"), file_nm))
 
-header <- c("\t","\t", paste(paste(mrkrs, collapse = " "), "\n", sep = ""))
+header <- c("\t","\t", paste(paste(names(outlier_SNPs)[-grep("^indiv$|^pop$", names(outlier_SNPs))]), collapse = " "), "\n", sep = "")
 
 cat(header, file = file.path(file.path(res_path, "merged"), file_nm), append = TRUE, sep = "")
 
