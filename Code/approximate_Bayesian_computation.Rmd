@@ -1,0 +1,48 @@
+---
+title: "Approximate Bayesian Computation"
+author: "Grace Smith-Vidaurre"
+date: "September 23, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "abcrf", "delimitR")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+# Path where BayeScan files will be written
+out_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BayeScan_mergedSNPs"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+seed <- 401
+
+# Source the BayeScan R function
+# I copied this into my external hard drive from BayeScan2.1/R functions/
+source(file.path(out_path, "plot_R.r"))
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```

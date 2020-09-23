@@ -1,0 +1,248 @@
+---
+title: "delimitR tutorial"
+author: "Grace Smith-Vidaurre"
+date: "September 23, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate.
+
+Here I ran examples from the delimitR repository: https://github.com/meganlsmith/delimitR/blob/master/fullmanual_v2.md
+
+Check out: https://rdrr.io/github/thierrygosselin/radiator/man/genomic_converter.html for conversion in R from genind to other formats like VCF (and even BayeScan...)
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "abcrf", "delimitR")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the local folder of this repo on my machine
+path <- "/home/owner/Desktop/Software/delimitR/delimitR-master/data"
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+seed <- 401
+
+```
+
+Initialize the input files: the observed SFS and the traits file. As recommended by Megan, see Issac Overcast's repository for downsampling the mSFS: https://github.com/isaacovercast/easySFS
+```{r echo = TRUE, eval = TRUE}
+
+# If you conducted downsampling using scripts provided in the BuildmSFS directory (or another method), the traits file provided will be pre-downsampling and consist of the original individuals used to construct the SFS
+observedSFS <- file.path(path, 'pseudoobserved_tutorial_MSFS.obs')
+traitsfile <- file.path(path, 'tutorial_traits.txt')
+
+```
+
+To build models, need to provide a guide tree, a matrix for population migration, and priors for divergence times, population sizes, migration rates. 
+
+Guide tree in Newick format, in which 0 and 1 are the most recent split, then join later with 2.
+```{r echo = TRUE, eval = TRUE}
+
+observedtree <- "((0,1),2);"
+
+```
+
+Migrstion matrix. Needs to show which populations can experience symmetric migration, whether or not secondary contact should be considered (Boolean), whether divergence with gene flow should be considered (Boolean), and the maximum number of migration events to include in models (integers).
+
+The matrix should by n x n, in which n is the max number of species. In my analyses, not working with species but rather with populations, but the idea should be the same. In this matrix, the cell [0, 1] (first row, second column) corresponds to gene flow between population 0 (first population) and population 1 (second population). If this cell is TRUE, then migration between these populations is included.
+
+Here, migration is considered only between the first 2 populations. delimitR can handle ONLY symmetric migration, so matrices must be symmetrical. 
+```{r echo = TRUE, eval = TRUE}
+
+migmat <- matrix(c(FALSE, TRUE, FALSE,
+                   TRUE, FALSE, FALSE,
+                   FALSE, FALSE, FALSE),
+                 nrow = 3, ncol = 3, byrow = TRUE)
+
+migmat
+
+```
+
+Secondary contact and divergence with gene flow. These are the two types of migration that delimitR considers. Secondary contact is defined as gene flow in the present that ends half-way before the first coalescent event. Gene flow in turn is defined as beginning halfway between time 0 and the coalescent event that led to sister speies, ending when sister species coalesce. See manual for how event starts and end are determined when designing models of divergence wth gene flow and more than one migration event.
+
+Here Megan considers secondary contact only
+```{r echo = TRUE, eval = TRUE}
+
+divwgeneflow <- FALSE
+seccontact <- TRUE
+
+```
+
+Maximum number of migration events per model. Here, there is only migration between two populations, so this parameter is set to 1 and does not influence the models.
+```{r echo = TRUE, eval = TRUE}
+
+maxedges <- 1
+
+```
+
+Number of species, sample sizes, SNPs. These must match the properties of both input files. A prefix must also be supplied for naming fastsimcoal2 (fsc2) input files, must be unique for all guide tree and prior combinations in the current directory.
+```{r echo = TRUE, eval = TRUE}
+
+obsspecies <- 3
+obssamplesize <- rep(10, 3)
+obssnps <- 1500
+
+obsprefix <- "tutorial_guidetree1"
+
+```
+
+Set up priors: population sizes, divergence times, migration rates. Population sizes must be specified in order from population 0 (the first) to population n-1 (the last), as a list of vectors. Here working with haploid individuals. Also note that the priors are specified twice per population, reflecting the fact that the guide tree has one coalescent event that divides the tree into two time periods (e.g. A and B coalescent intervals, with A being more recent).
+
+The divergence time priors are specified in the first interval (A, the most recent), from left to right across the tree (e.g. population 0, population 1). For this tree, the first divergence time is for the coalescent event describing divergence between populations 0 and 1. The second divergence time is for the split between ancestral populations or species 1 and 2 (in interval B). delimitR only accepts non-overlapping divergence time priors in different coalescent intervals (e.g. divergence times between A and B cannot overlap). This can be overridden, but is fine for my purposes.
+```{r echo = TRUE, eval = TRUE}
+
+obs_popsize_prior <- list(c(10000, 100000), c(10000, 100000), c(10000, 100000))
+
+obs_divtime_prior <- list(c(50000, 100000), c(500000, 1000000))
+
+# Only a single prior for migration rates is allowed
+obs_migrate_prior <- list(c(0.000005, 0.00005))
+
+```
+
+Then use setup_fsc2 to generate the .tpl and .est files that describe these models. This is great, the files needed to run fastsimcoal2 are produced in the working directory, so I don't have to code these myself. Megan noted in her email response that although delimitR works best with up to 10 populations, it can also handle other models created externally in fastsimcoal2 if needed. I think this won't be necessary for the monk parakeet data, since I won't be considering each sampling site (> 10 total) as separate populations. 
+```{r echo = TRUE, eval = TRUE}
+
+# setwd(path)
+
+setup_fsc2(
+  tree = observedtree,
+  nspec = obsspecies,
+  samplesizes = obssamplesize,
+  nsnps = obssnps,
+  prefix = obsprefix,
+  migmatrix = migmat,
+  popsizeprior = obs_popsize_prior,
+  divtimeprior = obs_divtime_prior,
+  migrateprior = obs_migrate_prior,
+  secondarycontact = seccontact,
+  divwgeneflow = divwgeneflow,
+  maxmigrations = maxedges
+)
+
+```
+
+This code produces 4 sets of. tpl and .est files. The .tpl file is the template file, which contains keywords and values for the given model. These are the parameters to be sampled. 
+
+There are 4 sets of these files because delimitR builds 4 models. I'm still not sure how these models are different....After re-reading Megan's email, it looks like these 4 models are created by default for species delimitation, so if you want to use other models, you must build them by creating your own fcs files and put them in a working directory for the project. So the files created above will be helpful as examples.
+
+The .est file is the Estimation file, which contains priors and rules (see fastsimcoal2 manual). It hs 3 sections (parameters, rules, complex parameters). These are the full specifications of the parameter distributions.
+
+When these files are supplied together to fastsimcoal2, the software use the estimation file to generate n simulations for N sets of randomly drawn parameter values. 
+
+Then fastsimcoal2 is used from here to simulate the mSFS under the given models. I can't run fastsimcoal2 on the 32-bit OS on my machine, but it's installed on Discovery. Megan notes that a minimum of 10,000 replicates should be simulated per model. 
+```{r echo = TRUE, eval = TRUE}
+
+fastsimcoalsims(prefix = obsprefix,
+                pathtofsc = '../fsc26',
+                nreps = 10000)
+
+# This is the code inside fastsimcoalsims used to generate the simulated data:
+# Use this when running fcs26, not that nreps is the number of sets of randomly drawn parameter values, and the different flags Megan specifies (see pp 44 of fcs manual)
+
+# --msfs: computes the SFS for the minor allele in each population sample, for all pairs of samples (join SFS), and for all populations pooled (global SFS), SNPs only
+# -q: silences messages to console
+# --multiSFS: generate or use multidimensional SFS
+# -x: do not generate Arlequin output files
+# -E: number of reps or number of sets of parameters to draw from prior distributions defined in est
+system(paste(pathtofsc, " -t ", prefix, "_", count, ".tpl", 
+            " -e ", prefix, "_", count, ".est", " -n 1 --msfs -q --multiSFS -x -E", 
+            nreps, sep = ""), ignore.stdout = TRUE)
+
+```
+
+After simulating data, the SFS is binned and a prior is created. What is the difference between the prior distributions/parameters specified above and a prior as referred to here?
+
+A binning strategy is used as a summary of the mSFS, since inferences can be less accurate when few segregating sites are campled among unlinked biallelic SNPs. Need to read Smith et al. 2017 to wrap my head around this again. An optimal number of bins must be chosen, see Smith et al. for their random forests approach here as well.
+```{r echo = TRUE, eval = TRUE}
+
+nClasses <- 5
+
+```
+
+Create the prior with the model files. This is a binned file (suffix .obs) that will be used to build the random forests classifier.
+
+Note that the threshold indicates the threshold of non-missing data for SNPs used if the observed mSFS was built with a downsampling approach. For instance, a threshold of 50% means that only SNPs sequenced in at least 50% of individuals were randomly downsampled. The threshold should be set to 100 if no downsampling was used. This function here calls a Python script.
+```{r echo = TRUE, eval = TRUE}
+
+FullPrior <- makeprior(
+  prefix = obsprefix,
+  nspec = obsspecies,
+  nclasses = nClasses,
+  getwd(),
+  traitsfile = traitsfile,
+  threshold = 100,
+  thefolder = "Prior",
+  ncores = cores
+)
+
+```
+
+Remove rows with zero variance, e.g. bins for which no SNPs were ever observed across all models and simulations. 
+```{r echo = TRUE, eval = TRUE}
+
+ReducedPrior <- Prior_reduced(FullPrior)
+
+```
+
+Next, build a random forests classifier that uses the bSFS (binned SFS) bins as predictors, and the model used for data simulation is the response. the abcrf package is used here. The number of trees can be supplied by the user. 
+
+Each decision tree in the forest uses a subset of the prior (still not sure what this means), and each node considers a bin of the bSFS (does this mean mtry is set to 1?). Thena binary decision rule is made based on the number of SNPs per bin. Observed data can be used as a prediction dataset that is run down the trained RF classifier, and the each decision tree votes for a demographic model. Since this is an RF classifier, the model with the greatest number of votes (leaves in the forest) wins.
+```{r echo = TRUE, eval = TRUE}
+
+myRF <- RF_build_abcrf(ReducedPrior, FullPrior, 500)
+myRF
+
+plot(myRF, training = ReducedPrior)
+
+```
+
+Out-of-bag error rates (OOB) can be used to assess power of the classifier. These are reported as proportons by the classifier, such that an error rate of 0.0231 for Model 4 indicates that when data was truly simulated under Model 4, the wrong model was chosen 2.31% of the time. The RF models allow for OOB calculation because the prior is subsampled to construct each decision tree, so the OOB reflects elements that were not used to build decision trees, and calculates how often the incorrect model is chosen for those elements.
+
+Can also check out the confusion matrix to see how many simulated datasets were assigned to the right and wrong models.
+
+Selecting the best model for the observed data. Here, need to get the obserevd data into the correct format. 
+```{r echo = TRUE, eval = TRUE}
+
+myobserved <- prepobserved(
+  observedSFS,
+  FullPrior,
+  ReducedPrior,
+  nclasses,
+  obsspecies,
+  traitsfile=traitsfile,
+  threshold = 100)
+
+```
+
+Then apply the trained classifier to the observed data, which will return the proportion of trees that voted for each model.
+```{r echo = TRUE, eval = TRUE}
+
+prediction <- RF_predict_abcrf(myRF, myobserved, ReducedPrior, FullPrior, 500)
+prediction
+
+```
+
+Here, Megan generated the observed data under Model 4, which had the highest proportion of votes (0.992).
+
+Finally, regress over the out-of-bag error rates (Pudlo et al. 2015) to estimate the posterior probability of the best model, which should give you a sense of confidence in the results.
+
+Next steps:
+
+  - Try downloading fsc263 on our Mac to see if I can finish the example presented here
+  
+  - Consider how to do the demographic modeling...use the population genetic patterns observed previously to determine how to group sampling sites into putative populations, and how to split off CT
+  
+  - Also settle on priors. Check out previous notes on my attempts to do ABC before
+  
+  - Figure out how to generate the observed mSFS, using the repo included above, and some sort of downsampling (or not, but either way, must be able to justify). From the repo above, looks like I will have to convert to VCF format, see another repo for a tool that might help with this
+  
+  - Once the observed mSFS is in hand, build models with delimitR, then simulate data with fsc263 on Discovery, then download the results, then use these to validate the optimal number of bins in an RF classification approach as described by Smith et al. 2017, then run the classifier, and do model selection
