@@ -1,0 +1,379 @@
+---
+title: "Newick trees for ABC"
+author: "Grace Smith-Vidaurre"
+date: "September 25, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Run discriminant analysis of principal components on the neutral SNPs used in Structure analysis. Use the resulting patterns of population structure to inform the demographic models that will be built for approximate Byaesian computation. Then, initialize Newick trees for these demographic models, which will be used to simulate data (multidimensional site frequency spectrum), which will then be compared to observed data, and the best model will be selected using random forests.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "ape", "randomForest", "mclust", "MASS")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet that will be updated
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+seed <- 401
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+# DAPC of neutral merged SNPs dataset
+
+Read in the dataset of pre-processed neutral SNPs from the merged dataset. The number of individuals and loci is documented in BayeScan_post-processing.Rmd.
+
+three HWE filtered Structure files: single-end, paired-end, merged, and the 2 versions of each (just HWE filtered, or additionally filtered by removing individuals and loci with a lot of missing data). These will be read in as genind objects.
+```{r echo = TRUE, eval = FALSE}
+
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str"
+
+neutral_snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 320, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(neutral_snps)
+
+```
+
+Run DAPC for this set of neutral SNPs using sampling locations from sample metadata. adegenet package version 2.1.3.
+```{r echo = TRUE, eval = FALSE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp1 <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp1)
+length(grp1)
+
+# Population identifiers by country, then sampling site
+# Same order as in Structure file (taken from BayeScan_post-processing.Rmd)
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "FLOR", "ILLI", "WASH", "CNCT")
+
+# Change levels to be in order of country and sampling sites above
+grp1 <- factor(grp1, levels = all_sites)
+
+# If all PCs used, then no points will show up, just labels for sampling sites
+# Here selected the number of PCs that contained 60% of variation, and 2 discriminant functions
+dapc1 <- dapc(neutral_snps, pop = grp1, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+# 45 PCs retained
+dapc1
+
+# Make colors by country, hues by sampling location
+levels(grp1)
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "lightskyblue", "black", "gray5", "gray25", "gray50", "gray75", "firebrick", "brown4", "red", "maroon", "coral2", "orangered", "orange", "gold2", "yellow2", "gold4")
+
+# Shapes by country
+pchs <- c(rep(19, 10), rep(18, 5), rep(15, 6), rep(17, 4))
+
+# dev.off()
+scatter(dapc1, scree.da = FALSE, bg = "white", col = cols, pch = pchs, cell = 0, cstar = 0, solid = 0.75, cex = 3, clab = 0, leg = TRUE)
+
+```
+
+Patterns of population genetic structure are very similar to those seen in exploratory visuals prior to the outlier analyses used to get neutral SNPs. All sampling sites overlap in genetic space, except for Connecticut and Southern Argentina sites. 
+
+Make this visual using ggplot.
+```{r echo = TRUE, eval = FALSE}
+
+data.frame(
+  X = dapc1$ind.coord[, 1],
+  Y = dapc1$ind.coord[, 2]
+  ) %>%
+  dplyr::mutate(
+    type = rep("Neutral merged SNPs", nrow(dapc1$ind.coord)),
+    indiv = dimnames(dapc1$ind.coord)[[1]],
+    site = grp1
+  ) %>%
+  ggplot(aes(x = X, y = Y, color = site, shape = site)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw()
+
+```
+
+Make another visual with colors and shapes by region. Found an error in the metadata in which individual PE_lib1_NAT_BAIR_69_CCAGTTCA had been given the region Northern Argentina, when Pepe Tella's records stated that these birds were chicks that had been sampled in Buenos Aires (BAIR), but obtained from southern populations. I fixed this manually in the metadata saved on my local machine, both in the .xlsx and .csv file.
+```{r echo = TRUE, eval = FALSE}
+
+unique(meta_dats$Region)
+
+all_regs <- c("Southwestern Uruguay", "South Central Uruguay", "Northern Argentina", "Southern Argentina", "Spain", "Southern U.S.", "Northern U.S.")
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "royalblue", "gray50", "black", "firebrick", "orange", "gold4")
+
+# Shapes by country
+pchs <- c(rep(19, 2), rep(18, 2), rep(15, 1), rep(17, 2))
+
+region <- meta_dats %>%
+  filter(Sample_Name %in% dimnames(dapc1$ind.coord)[[1]]) %>%
+  pull(Region)
+
+data.frame(
+  X = dapc1$ind.coord[, 1],
+  Y = dapc1$ind.coord[, 2]
+  ) %>%
+  dplyr::mutate(
+    type = rep("Neutral merged SNPs", nrow(dapc1$ind.coord)),
+    indiv = dimnames(dapc1$ind.coord)[[1]],
+    region = gsub("United States", "U.S.", region),
+    region = factor(region, levels = all_regs),
+    site = grp1
+  ) %>%
+  ggplot(aes(x = X, y = Y, color = region, shape = region)) +
+  geom_hline(aes(yintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_vline(aes(xintercept = 0), linetype = "solid", color = "black", size = 0.25) +
+  geom_point(size = 6) +
+  facet_wrap(~ type) +
+  scale_shape_manual(values = pchs) +
+  scale_color_manual(values = alpha(cols, 0.75)) +
+  guides(color = guide_legend(title = "", nrow = 1, override.aes = list(size = 3)), shape = guide_legend(title = "", nrow = 1)) +
+  xlab("Dimension 1") +
+  ylab("Dimension 2") +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    strip.text = element_text(size = 12),
+    legend.text = element_text(size = 11),
+    legend.position = "top",
+    panel.grid.major = element_line(size = 0.2),
+    panel.grid.minor = element_line(size = 0.1)
+  )
+
+```
+
+# Unsupervised random forests and Gaussian mixture modelling
+
+Use unsupervised random forests to get a genetic similarity matrix (the random forests proximity matrix), and then iterate over different numbers of mixture components in Gaussian mixture models to cluster data together. Then visualize the results with sampling sites, to see which sampling sites split off first. This is a complementary population genetic structure analysis to Structure (which iterates over K numbers of putative genetic clusters).
+
+randomforests package version 4.6-14, this is a package that allows running random forests in unsupervised mode. mclust version 5.4.6. To get Structure data into a useable format for random forests, need to collapse the data into 1 genotype per individual per locus, such that each row is an individual and each column is the biallelic genotype per locus. Right now there are two rows per individual (diploid). Use the adegenet function genind2df
+```{r echo = TRUE, eval = FALSE}
+
+str(neutral_snps)
+class(neutral_snps)
+
+# sep is the character string separating alleles
+neutral_snps_df <- genind2df(neutral_snps, pop = NULL, sep = "", usepop = FALSE, oneColPerAll = FALSE)
+glimpse(neutral_snps_df)
+
+# Which columns have no NAs? NAs are not allowed in random forest predictors
+wh <- which(sapply(neutral_snps_df, function(X){
+  !any(is.na(X))
+}))
+
+# 53 loci have absolutely no NAs 
+length(wh)
+
+# Subset by these loci, e.g. the complete cases (cc)
+neutral_snps_cc_df <- neutral_snps_df %>%
+  dplyr::select(names(wh))
+glimpse(neutral_snps_cc_df)
+
+# Convert columns to numeric
+neutral_snps_cc_df2 <- sapply(neutral_snps_cc_df, as.numeric)
+glimpse(neutral_snps_cc_df2)
+class(neutral_snps_cc_df2)
+
+
+```
+
+Run random forests in unsupervised mode. mtry was 17 by default.
+```{r echo = TRUE, eval = FALSE}
+
+# Omitting the y argument lets randomForest run in unsupervised mode
+rf_unsup <- randomForest(x = neutral_snps_cc_df2, ntree = 2000, proximity = TRUE)
+str(rf_unsup)
+str(rf_unsup$proximity)
+
+prox_mat <- rf_unsup$proximity
+dimnames(prox_mat) <- list(dimnames(neutral_snps@tab)[[1]], dimnames(neutral_snps@tab)[[1]])
+str(prox_mat)
+
+saveRDS(prox_mat, file.path(file.path(res_path, "merged"), "rf_unsup_prox_mat.RDS"))
+
+```
+
+Run Gaussian mixture models over different numbers of mixture components. The maximum number of components will be the number of sampling sites + 1, as used in the Structure runs (max K = 26). Using non-metic multidimensional scaling in package MASS version 7.3-51.6
+```{r echo = TRUE, eval = FALSE}
+
+prox_mat <- readRDS(file.path(file.path(res_path, "merged"), "rf_unsup_prox_mat.RDS"))
+str(prox_mat)
+
+# Omitting 1 because not doing a formal assessment of the "optimal" number of clusters
+mcs <- seq(2, length(all_sites) + 1, 1)
+mcs
+
+# i <- 2
+gmm_df <- rbindlist(pblapply(1:length(mcs), function(i){
+  
+  # COnvert proximity to distance
+  mres <- Mclust(1 - prox_mat, G = mcs[i])
+  
+  tmp_df <- data.frame(
+    indiv = dimnames(prox_mat)[[1]], 
+    site = meta_dats %>%
+      filter(Sample_Name %in% dimnames(prox_mat)[[1]]) %>%
+      pull(Site_Code), 
+    region = meta_dats %>%
+      filter(Sample_Name %in% dimnames(prox_mat)[[1]]) %>%
+      pull(Region), 
+    mcs = mcs[i], 
+    cluster = mres$classification
+    )
+  
+}))
+
+glimpse(gmm_df)
+
+# Perform MDS on the proximity matrix and plot samples in low dimensional space, with one panel per cluster
+mds_res <- isoMDS(stats::as.dist(1 - prox_mat), k = 25, maxit = 1000)
+str(mds_res)
+
+pchs <- c(rep(19, 2), rep(18, 2), rep(15, 1), rep(17, 2))
+
+gmm_mds_df <- gmm_df %>%
+  inner_join(
+    data.frame(
+      indiv = dimnames(mds_res$points)[[1]],
+      X = mds_res$points[, 1],
+      Y = mds_res$points[, 2]
+    ),
+    by = "indiv"
+  ) %>%
+  dplyr::mutate(
+    cluster = factor(cluster),
+    region = as.character(region),
+    region = gsub("United States", "U.S.", region),
+    region = factor(region, levels = all_regs)
+  )
+
+glimpse(gmm_mds_df)
+
+# All 26 clusters, patterns similar to DAPC but hard to visualize
+gmm_mds_df %>%
+  ggplot(aes(x = X, y = Y, color = cluster, shape = region)) +
+  geom_point() +
+  scale_shape_manual(values = pchs) +
+  facet_wrap(~ mcs) +
+  theme_bw()
+
+# 2 - 10 clusters
+gmm_mds_df %>%
+  filter(mcs <= 10) %>%
+  ggplot(aes(x = X, y = Y, color = cluster, shape = region)) +
+  geom_point(size = 2.5) +
+  scale_shape_manual(values = pchs) +
+  facet_wrap(~ mcs) +
+  theme_bw()
+
+```
+
+Patterns in genetic space look similar to DAPC, iterating over clusters shows that Southern Argentina and Northern U.S. split out first, as expected. The disadvantage to this analysis is that only about 52 loci could be used, since random forests can't handle missing data. Stick to DAPC and Structure, as these both can handle missing data. Structure analysis will fill the gap in iterative searching over putative numbers of clusters.
+
+# Newick trees of demographic models
+
+In these models, split out southern and northern Argentina, or just don't use southern Argentina samples here. Only split out Connecticut when specified. The bottleneck duration or severity will be the same for all invasive populations grouped together. Note that the trees drawn below are just for visualization of the models, final figures will be made in other software.
+
+Model 1: Uruguay is the source for all invasive populations.
+```{echo = TRUE, eval = FALSE}
+
+model_1 <- read.tree(text = "((URY,INV),NAR);")
+
+str(model_1)
+class(model_1)
+
+plot(model_1, type = "cladogram", direction = "downwards", srt = 90)
+
+```
+
+Model 2: Northern Argentina is the source for all invasive populations.
+```{echo = TRUE, eval = FALSE}
+
+model_2 <- read.tree(text = "((URY),(INV,NAR));")
+
+str(model_2)
+# class(model_2)
+
+plot(model_2, type = "cladogram", direction = "downwards", srt = 90)
+
+```
+
+Model 3: Admixture between Uruguay and northern Argentina is the source for all invasive populations. This model in particular can be drawn better to show admixture as a horizontal dotted line.
+```{echo = TRUE, eval = FALSE}
+
+model_3 <- read.tree(text = "(URY,(INV),NAR);")
+
+str(model_3)
+
+plot(model_3, type = "cladogram", direction = "downwards", srt = 90)
+
+```
+
+Model 4: Connecticut arose from Uruguay but underwent a more severe bottleneck than other invasive populations.
+```{echo = TRUE, eval = FALSE}
+
+model_4 <- read.tree(text = "((URY,INV,CNCT),(NAR));")
+
+str(model_4)
+
+plot(model_4, type = "cladogram", direction = "downwards", srt = 90)
+
+```
+
+Model 5: Connecticut arose from northern Argentina but underwent a more severe bottleneck than other invasive populations.
+```{echo = TRUE, eval = FALSE}
+
+model_5 <- read.tree(text = "((URY),(CNCT,INV,NAR));")
+
+str(model_5)
+
+plot(model_5, type = "cladogram", direction = "downwards", srt = 90)
+
+```
+
+Model 6: Connecticut arose from admixture between Uruguay and northern Argentina but underwent a more severe bottleneck than other invasive populations.
+```{echo = TRUE, eval = FALSE}
+
+model_6 <- read.tree(text = "(URY,(INV,CNCT),NAR);")
+
+str(model_6)
+
+plot(model_6, type = "cladogram", direction = "downwards", srt = 90)
+
+```
+
+# Parameterizing the models
+
+Documenting the different demographic parameters that need to be set, and reasonable values to use.
+
+Next steps:
+
+- Make these models in LibreOffice Draw as panels of a larger figure
+- Think about how to parameterize these
+- Read fcs263 manual to generate input files

@@ -39,7 +39,7 @@ glimpse(meta_dats)
 
 ```
 
-Read in the three HWE filtered Structure files: single-end, paired-end, merged, and the 2 versions of each (just HWE filtered, or additionally filtered by remvoing individuals and loci with a lot of missing data). These will be read in as genind objects. The number of loci per file is documented in HWE_filtering.Rmd.
+Read in the three HWE filtered Structure files: single-end, paired-end, merged, and the 2 versions of each (just HWE filtered, or additionally filtered by removing individuals and loci with a lot of missing data). These will be read in as genind objects. The number of loci per file is documented in HWE_filtering.Rmd.
 ```{r echo = TRUE, eval = FALSE}
 
 single_end <- read.structure(file.path(file.path(res_path, "single_end"), "single_end_HWE_filter.str"), n.ind = 139, n.loc = 33726, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9999")
