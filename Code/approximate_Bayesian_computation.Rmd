@@ -11,31 +11,28 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 ```
 
-Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate.
+Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate. Also installed the package radiator to convert between genind object and VCF format, needed to use Python code in another GitHub repo to get observed SFS data.
 
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
 rm(list = ls())
 
-X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "abcrf", "delimitR")
+# library(devtools)
+# install_github("thierrygosselin/radiator")
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "abcrf", "delimitR", "radiator")
 invisible(lapply(X, library, character.only = TRUE))
 
-# Path to the metadata spreadsheet that will be updated
+# Path to the metadata spreadsheet
 xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
 
 # Path to Stacks output, including the HWE filtered SNPs in Structure format 
 res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
 
-# Path where BayeScan files will be written
-out_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BayeScan_mergedSNPs"
+# Path where ABC files will be written
+out_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/ABC"
 
 gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
-
-seed <- 401
-
-# Source the BayeScan R function
-# I copied this into my external hard drive from BayeScan2.1/R functions/
-source(file.path(out_path, "plot_R.r"))
 
 ```
 
@@ -46,3 +43,319 @@ meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_Combine
 glimpse(meta_dats)
 
 ```
+
+Read in the dataset of pre-processed neutral SNPs from the merged dataset. The number of individuals and loci is documented in BayeScan_post-processing.Rmd.
+```{r echo = TRUE, eval = TRUE}
+
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str"
+
+neutral_snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 320, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(neutral_snps)
+
+str(neutral_snps@tab)
+
+```
+
+Make a new data frame with metdata for these samples. Using DAPC output here. 
+```{r echo = TRUE, eval = TRUE}
+
+# Get sample locations from metadata in the same order of samples in the genind object
+grp1 <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(grp1)
+length(grp1)
+
+# Population identifiers by country, then sampling site
+# Same order as in Structure file (taken from BayeScan_post-processing.Rmd)
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "FLOR", "ILLI", "WASH", "CNCT")
+
+# Change levels to be in order of country and sampling sites above
+grp1 <- factor(grp1, levels = all_sites)
+
+# If all PCs used, then no points will show up, just labels for sampling sites
+# Here selected the number of PCs that contained 60% of variation, and 2 discriminant functions
+dapc1 <- dapc(neutral_snps, pop = grp1, n.da = 2, pca.select = "percVar", perc.pca = 60)
+
+unique(meta_dats$Region)
+
+all_regs <- c("Southwestern Uruguay", "South Central Uruguay", "Northern Argentina", "Southern Argentina", "Spain", "Southern U.S.", "Northern U.S.")
+
+region <- meta_dats %>%
+  filter(Sample_Name %in% dimnames(dapc1$ind.coord)[[1]]) %>%
+  pull(Region)
+
+dapc_df <- data.frame(
+  X = dapc1$ind.coord[, 1],
+  Y = dapc1$ind.coord[, 2]
+  ) %>%
+  dplyr::mutate(
+    type = rep("Neutral merged SNPs", nrow(dapc1$ind.coord)),
+    indiv = dimnames(dapc1$ind.coord)[[1]],
+    region = gsub("United States", "U.S.", region),
+    region = factor(region, levels = all_regs),
+    site = grp1
+  )
+
+glimpse(dapc_df)
+
+```
+
+Make new files called "ABC_populations_modelX.txt" that contain strata or populations for each ABC model (necessary for writing out VCF file and getting observed SFS per ABC model).
+
+Initialize all unique demes to be used across models: URY-NAR, URY, NAR, SAR, SPA, USA, CNCT. 
+```{r echo = TRUE, eval = TRUE}
+
+# URY-NAR, 59 individuals
+ury_nar <- dapc_df %>%
+  filter(grepl("Uruguay|Northern Argentina", region)) %>%
+  pull(indiv) 
+
+head(ury_nar)
+length(ury_nar)
+
+# URY, 45 individuals
+ury <- dapc_df %>%
+  filter(grepl("Uruguay", region)) %>%
+  pull(indiv) 
+
+head(ury)
+length(ury)
+  
+# NAR, 14 individuals
+nar <- dapc_df %>%
+  filter(grepl("Northern Argentina", region)) %>%
+  pull(indiv) 
+
+head(nar)
+length(nar)  
+
+# SAR, 18 individuals
+sar <- dapc_df %>%
+  filter(grepl("Southern Argentina", region)) %>%
+  pull(indiv) 
+
+head(sar)
+length(sar)
+
+# SPA, 28 individuals
+spa <- dapc_df %>%
+  filter(grepl("Spain", region)) %>%
+  pull(indiv) 
+
+head(spa)
+length(spa)  
+
+# USA (no CNCT), 41 individuals
+usa <- dapc_df %>%
+  filter(grepl("U.S.", region) & !grepl("CNCT", site)) %>%
+  pull(indiv) 
+
+head(usa)
+length(usa)
+
+# CNCT, 27 individuals
+cnct <- dapc_df %>%
+  filter(grepl("CNCT", site)) %>%
+  pull(indiv) 
+
+head(cnct)
+length(cnct)
+
+```
+
+Model 1: 5 demes. Make a tab delimited file with column headers INDIVIDUALS and STRATA for radiator::genomic_converter. Make a tab delimited file without headers for the easy_SFS.py script.
+```{r echo = TRUE, eval = FALSE}
+
+# Make a temporary data frame for Model 1
+tmp_df <- dapc_df %>%
+  filter(indiv %in% c(ury_nar, spa, cnct, usa, sar)) %>%
+  droplevels() %>%
+  dplyr::mutate(
+    region = as.character(region),
+    region = recode(
+      region,
+      `Southwestern Uruguay` = "URY-NAR",
+      `South Central Uruguay` = "URY-NAR",
+      `Northern Argentina` = "URY-NAR",
+      `Spain` = "SPA",
+      `Northern U.S.` = "USA",
+      `Southern U.S.` = "USA",
+      `Southern Argentina` = "SAR"
+    ),
+    region = ifelse(site == "CNCT", "CNCT", region)
+  ) %>%
+  dplyr::mutate(
+    pop = region,
+    pop = recode(
+      pop,
+      `URY-NAR` = "pop1",
+      `SPA` = "pop2",
+      `CNCT` = "pop3",
+      `USA` = "pop4",
+      `SAR` = "pop5"
+    )
+  )
+glimpse(tmp_df)  
+# View(tmp_df) # looks good
+
+# Order by population
+tmp_df <- tmp_df %>%
+  arrange(-desc(pop))
+
+glimpse(tmp_df) 
+
+# Text file for radiator
+file_nm <- "radiator_strata_model_1.tsv"
+file.remove(file.path(out_path, file_nm))
+
+header <- c(paste(c("INDIVIDUALS", "STRATA"), collapse = "\t"), "\n")
+
+cat(header, file = file.path(out_path, file_nm), append = TRUE, sep = "")
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+
+# Text file for easy_SFS.py (no column headers)
+file_nm <- "easySFS_popfile_model_1.txt"
+file.remove(file.path(out_path, file_nm))
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+# Opened both file in Vim, both look good
+
+```
+
+Model 2: 6 demes.
+```{r echo = TRUE, eval = FALSE}
+
+# Make a temporary data frame for Model 2
+tmp_df <- dapc_df %>%
+  filter(indiv %in% c(ury_nar, spa, cnct, usa, sar)) %>%
+  droplevels() %>%
+  dplyr::mutate(
+    region = as.character(region),
+    region = recode(
+      region,
+      `Southwestern Uruguay` = "URY",
+      `South Central Uruguay` = "URY",
+      `Northern Argentina` = "NAR",
+      `Spain` = "SPA",
+      `Northern U.S.` = "USA",
+      `Southern U.S.` = "USA",
+      `Southern Argentina` = "SAR"
+    ),
+    region = ifelse(site == "CNCT", "CNCT", region)
+  ) %>%
+  dplyr::mutate(
+    pop = region,
+    pop = recode(
+      pop,
+      `URY` = "pop1",
+      `SPA` = "pop2",
+      `CNCT` = "pop3",
+      `USA` = "pop4",
+      `NAR` = "pop5",
+      `SAR` = "pop6"
+    )
+  )
+glimpse(tmp_df)  
+# View(tmp_df) # looks good
+
+# Order by population
+tmp_df <- tmp_df %>%
+  arrange(-desc(pop))
+
+glimpse(tmp_df)
+
+# Text file for radiator
+file_nm <- "radiator_strata_model_2.tsv"
+file.remove(file.path(out_path, file_nm))
+
+header <- c(paste(c("INDIVIDUALS", "STRATA"), collapse = "\t"), "\n")
+
+cat(header, file = file.path(out_path, file_nm), append = TRUE, sep = "")
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+
+# Text file for easy_SFS.py (no column headers)
+file_nm <- "easySFS_popfile_model_2.txt"
+file.remove(file.path(out_path, file_nm))
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+# Opened both file in Vim, both look good
+
+```
+
+For models 3 and 4, I just copied the text files made for model 2, as these had the same 6 demes. 
+
+Use radiator to convert from genind format to VCF per model, write out VCF files per model. VCF files are the same for models 2 - 4. radiator path setting is bad: assumes a path inside thre current working directory, so I have to set my directory for it to work
+```{r echo = TRUE, eval = FALSE}
+
+setwd(out_path)
+
+sfiles <- list.files(out_path, pattern = "^radiator_", full.names = TRUE)
+sfiles
+
+models <- seq(1, 4, 1)
+
+class(neutral_snps)
+detect_genomic_format(neutral_snps)
+
+# i <- 1
+invisible(pblapply(1:length(models), function(i){
+  genomic_converter(data = neutral_snps, output = "vcf", filename = paste("ABC_model_", i, sep = ""), strata = sfiles[i], vcf.metadata = FALSE, vcf.stats = FALSE)
+  # any(is.na(tmp$tidy.data$MARKERS))
+  # any(is.na(tmp$tidy.data$POP_ID))
+  # any(is.na(tmp$tidy.data$INDIVIDUALS))
+  # any(is.na(tmp$tidy.data$GT))
+  # any(is.na(tmp$tidy.data$REF))
+  # any(is.na(tmp$tidy.data$ALT))
+  # any(is.na(tmp$tidy.data$GT_VCF))
+  # any(is.na(tmp$tidy.data$GT_BIN)) # This column has NAs....
+  
+  # Works just fine, underscores are automatically changed to dashes
+  # read_strata(sfiles[i])
+  
+}))
+
+# For every run I get an error that a separator is not valid, despite changing all "_" to "-" but the strata file is read in just fine and the package detects the genind class
+
+# I also get an error about NAs created which I think is related to the NA in the POS field in the resulting VCF file, but everything else looks good:
+# Warning messages:
+# 1: Problem with `mutate()` input `LOCUS`.
+# ℹ NAs introduced by coercion
+# ℹ Input `LOCUS` is `stringi::stri_join(LOCUS, as.numeric(POS) - 1, sep = "_")`. 
+# 2: In stringi::stri_join(LOCUS, as.numeric(POS) - 1, sep = "_") :
+#   NAs introduced by coercion
+
+# Looks like this just an error from reading in data with tifyr?
+# Resulting VCF file looks different compared to Stacks VCF file, has just genotypes
+
+```
+
+I moved the resulting VCF files out of the ./radiator_genomic_converter* directories and into /media/owner/MYIOPSITTA/R/Origins_Selection/ABC/.
+
+Followed instructions for calculating observed SFSs in this GitHub repo: https://github.com/isaacovercast/easySFS. I used Pycharm to use a virtual environment with Python3.
