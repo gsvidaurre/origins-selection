@@ -205,11 +205,11 @@ plot(myRF, training = ReducedPrior)
 
 ```
 
-Out-of-bag error rates (OOB) can be used to assess power of the classifier. These are reported as proportons by the classifier, such that an error rate of 0.0231 for Model 4 indicates that when data was truly simulated under Model 4, the wrong model was chosen 2.31% of the time. The RF models allow for OOB calculation because the prior is subsampled to construct each decision tree, so the OOB reflects elements that were not used to build decision trees, and calculates how often the incorrect model is chosen for those elements.
+Out-of-bag error rates (OOB) can be used to assess power of the classifier. These are reported as proportions by the classifier, such that an error rate of 0.0231 for Model 4 indicates that when data was truly simulated under Model 4, the wrong model was chosen 2.31% of the time. The RF models allow for OOB calculation because the prior is subsampled to construct each decision tree, so the OOB reflects elements that were not used to build decision trees, and calculates how often the incorrect model is chosen for those elements.
 
 Can also check out the confusion matrix to see how many simulated datasets were assigned to the right and wrong models.
 
-Selecting the best model for the observed data. Here, need to get the obserevd data into the correct format. 
+Selecting the best model for the observed data. Here, need to get the observed data into the correct format. 
 ```{r echo = TRUE, eval = TRUE}
 
 myobserved <- prepobserved(

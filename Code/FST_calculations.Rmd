@@ -1,0 +1,610 @@
+---
+title: "FST calculations"
+author: "Grace Smith-Vidaurre"
+date: "October 1, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Calculate pairwise FST values as another means of evaluating population structure at different scales. Do calculations among sampling sites as well as greater regions. These FST values can be used to inform models built for Approximate Bayesian Computation analyses. adegenet package version 2.1.3, hierfstat package version 0.5-7.
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+# install.packages("BEDASSLE")
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "BEDASSLE", "mclust", "MASS")
+invisible(lapply(X, library, character.only = TRUE))
+
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
+
+# Path to the metadata spreadsheet
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Read in the dataset of pre-processed neutral SNPs from the merged dataset. The number of individuals and loci is documented in BayeScan_post-processing.Rmd.
+```{r echo = TRUE, eval = TRUE}
+
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str"
+
+neutral_snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 320, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(neutral_snps)
+
+str(neutral_snps@tab)
+
+```
+
+Get pairwise Fst values with the BEDASSLE package. Here, using sampling sites as populations. Just need to pass the unbiased FST function a matrix with populations in rows and biallelic loci in columns, each cell contains the number of times allele "1" was observed per population. "1" is arbitrary but must be the same across populations. The second matrix is of sample sizes, in which each cell is the nunber of chromosomes sampled per locus and population...e.g the number of diploid individuals.
+
+Note that Weir and Cockham FST is an unbiased measurement, as is the unbiased FST measurement in BEDASSLE with hierfstat package.
+
+Make the input matrices for BEDASSLE.
+```{r echo = TRUE, eval = TRUE}
+
+# Iterate over populations and loci to get the reference allele frequencies
+pop_df <- data.frame(pop = meta_dats$Site_Code[grep(paste(paste("^", dimnames(neutral_snps@tab)[[1]], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)], indiv = dimnames(neutral_snps@tab)[[1]])
+glimpse(pop_df)
+
+# Same order as in Structure file (taken from BayeScan_post-processing.Rmd)
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "FLOR", "ILLI", "WASH", "CNCT")
+
+# Drop any sampling sites with less than 3 individuals
+pops2drop <- pop_df %>%
+  group_by(pop) %>%
+  dplyr::summarise(
+    n = length(indiv)
+  ) %>%
+  ungroup() %>%
+  filter(n <= 2) %>%
+  pull(pop) %>%
+  as.character()
+
+pops2drop
+
+pops <- pop_df %>%
+  filter(!pop %in% pops2drop) %>%
+  dplyr::mutate(
+    pop = factor(pop, levels = all_sites[-grep(paste(pops2drop, collapse = "|"), all_sites)])
+  ) %>%
+  pull(pop) %>%
+  levels()
+pops # 22 remain
+
+i <- 1
+z <- 49
+geno_mat <- unlist(pblapply(1:length(pops), function(i){
+  
+  tmp_indivs <- pop_df %>%
+    filter(pop == pops[i]) %>%
+    pull(indiv) %>%
+    as.character()
+  
+  # Get genotypes for these individuals from the genind object
+  tmp_genos <- neutral_snps@tab[grep(paste(paste("^", tmp_indivs, "$", sep = ""), collapse = "|"), dimnames(neutral_snps@tab)[[1]]), ]
+  
+  # Each column is a locus-allele, the value within each cell specifies whether an individual has zero, one or two of the given alleles
+  # str(tmp_genos)
+  
+  # Iterate over loci to pick the reference allele and count how many reference alleles are present per locus across individuals for the given population
+  loci <- names(neutral_snps@all.names)
+  
+  sums <- unlist(pblapply(1:length(loci), function(z){
+
+    tmp_locus <- tmp_genos[, grep(paste("^", loci[z], ".", sep = ""), dimnames(tmp_genos)[[2]])]
+    
+    # Make the reference allele the smaller locus ID, will be the same across populations at each given locus
+    ref <- dimnames(tmp_locus)[[2]][1]
+    
+    # Count number of reference alleles, remove NAs if not all individuals have them
+    if(!all(is.na(tmp_locus[, ref]))){
+      allele_sum <- sum(tmp_locus[, ref], na.rm = TRUE)
+    } else {
+      allele_sum <- NA
+    }
+    
+    return(allele_sum)
+    
+  }))
+  
+  return(sums)
+ 
+}))
+
+which(is.na(geno_mat)) # No NAs
+str(geno_mat)
+
+geno_mat <- matrix(geno_mat, nrow = length(pops), ncol = length(names(neutral_snps@all.names)))
+str(geno_mat)
+
+
+# Make a similar matrix but of number of chromsomes sampled
+samp_mat <- unlist(pblapply(1:length(pops), function(i){
+  
+  tmp_indivs <- pop_df %>%
+    filter(pop == pops[i]) %>%
+    pull(indiv) %>%
+    as.character()
+  
+  # Get genotypes for these individuals from the genind object
+  tmp_genos <- neutral_snps@tab[grep(paste(paste("^", tmp_indivs, "$", sep = ""), collapse = "|"), dimnames(neutral_snps@tab)[[1]]), ]
+  
+  # Each column is a locus-allele, the value within each cell specifies whether an individual has zero, one or two of the given alleles
+  # str(tmp_genos)
+  
+  # Iterate over loci to pick the reference allele and count how many reference alleles are present per locus across individuals for the given population
+  loci <- names(neutral_snps@all.names)
+  
+  chroms <- unlist(pblapply(1:length(loci), function(z){
+
+    tmp_locus <- tmp_genos[, grep(paste("^", loci[z], ".", sep = ""), dimnames(tmp_genos)[[2]])]
+    
+    # Make the reference allele the smaller locus ID, will be the same across populations at each given locus
+    ref <- dimnames(tmp_locus)[[2]][1]
+    
+    # Count number of reference alleles, remove NAs if not all individuals have them
+    if(!all(is.na(tmp_locus[, ref]))){
+      tmp <- tmp_locus[, ref]
+      chroms <- length(tmp[!is.na(tmp)])*2 # (diploid individuals)
+    } else {
+      chroms <- 0
+    }
+    
+    return(chroms)
+    
+  }))
+  
+  return(chroms)
+ 
+}))
+
+which(samp_mat == 0) # No populations have zero individuals (chromosomes) sampled
+str(samp_mat)
+
+samp_mat <- matrix(samp_mat, nrow = length(pops), ncol = length(names(neutral_snps@all.names)))
+str(samp_mat)
+
+
+```
+
+Get pairwise FST among all populations of interest. Can the resulting matrix be used for clustering?
+```{r echo = TRUE, eval = TRUE}
+
+# These values seem really high for FST
+pw_fst <- calculate.all.pairwise.Fst(geno_mat, samp_mat)
+pw_fst
+
+# 0.2624449 to 0.4174558
+range(pw_fst[lower.tri(pw_fst)])
+
+# Gaussian mixture modelling without setting number of mixture components
+gmm <- Mclust(data = pw_fst)
+
+gmm$classification
+
+iso <- isoMDS(stats::as.dist(pw_fst), k = 2, maxit = 1000)
+
+mds_df <- data.frame(X = iso$points[, 1], Y = iso$points[, 2]) %>%
+  dplyr::mutate(
+    pop = factor(pops, levels = pops),
+    cluster = factor(gmm$classification)
+  )
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "blue", "royalblue", "dodgerblue", "cornflowerblue", "cyan", "turquoise", "darkcyan", "deepskyblue3", "black", "gray5", "gray25", "gray50", "firebrick", "brown4", "maroon", "coral2", "orangered", "orange", "gold2", "yellow2", "gold4")
+
+# Shapes by country
+pchs <- c(rep(19, 9), rep(18, 4), rep(15, 5), rep(17, 4))
+
+# No clear pattern here
+mds_df %>%
+  ggplot(aes(x = X, y = Y, color = pop, shape = pop)) +
+  geom_point(size = 4) +
+  scale_color_manual(values = cols) +
+  scale_shape_manual(values = pchs) +
+  theme_bw()
+  
+```
+
+Get pairwise FST among all regions of interest.
+
+Make the input matrices for BEDASSLE.
+```{r echo = TRUE, eval = TRUE}
+
+# Iterate over populations and loci to get the reference allele frequencies
+pop_df <- data.frame(pop = meta_dats$Site_Code[grep(paste(paste("^", dimnames(neutral_snps@tab)[[1]], "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)], indiv = dimnames(neutral_snps@tab)[[1]])
+glimpse(pop_df)
+
+region <- meta_dats %>%
+  filter(Sample_Name %in% pop_df$indiv) %>%
+  pull(Region)
+
+all_regs <- c("Southwestern Uruguay", "South Central Uruguay", "Northern Argentina", "Southern Argentina", "Spain", "Southern U.S.", "Northern U.S.")
+
+# Convert pop column to regions
+pop_df <- pop_df %>%
+  dplyr::mutate(
+    region = region,
+    region = gsub("United States", "U.S.", region),
+    region = factor(region, levels = all_regs)
+  ) 
+
+pops <- pop_df %>%
+  pull(region) %>%
+  levels()
+pops # 7
+
+# i <- 1
+# z <- 1
+geno_mat <- unlist(pblapply(1:length(pops), function(i){
+  
+  tmp_indivs <- pop_df %>%
+    filter(region == pops[i]) %>%
+    pull(indiv) %>%
+    as.character()
+  
+  # Get genotypes for these individuals from the genind object
+  tmp_genos <- neutral_snps@tab[grep(paste(paste("^", tmp_indivs, "$", sep = ""), collapse = "|"), dimnames(neutral_snps@tab)[[1]]), ]
+  
+  # Each column is a locus-allele, the value within each cell specifies whether an individual has zero, one or two of the given alleles
+  # str(tmp_genos)
+  
+  # Iterate over loci to pick the reference allele and count how many reference alleles are present per locus across individuals for the given population
+  loci <- names(neutral_snps@all.names)
+  
+  sums <- unlist(pblapply(1:length(loci), function(z){
+
+    tmp_locus <- tmp_genos[, grep(paste("^", loci[z], ".", sep = ""), dimnames(tmp_genos)[[2]])]
+    
+    # Make the reference allele the smaller locus ID, will be the same across populations at each given locus
+    ref <- dimnames(tmp_locus)[[2]][1]
+    
+    # Count number of reference alleles, remove NAs if not all individuals have them
+    if(!all(is.na(tmp_locus[, ref]))){
+      allele_sum <- sum(tmp_locus[, ref], na.rm = TRUE)
+    } else {
+      allele_sum <- NA
+    }
+    
+    return(allele_sum)
+    
+  }))
+  
+  return(sums)
+ 
+}))
+
+which(is.na(geno_mat)) # No NAs
+str(geno_mat)
+
+geno_mat <- matrix(geno_mat, nrow = length(pops), ncol = length(names(neutral_snps@all.names)))
+str(geno_mat)
+
+
+# Make a similar matrix but of number of chromsomes sampled
+samp_mat <- unlist(pblapply(1:length(pops), function(i){
+  
+  tmp_indivs <- pop_df %>%
+    filter(region == pops[i]) %>%
+    pull(indiv) %>%
+    as.character()
+  
+  # Get genotypes for these individuals from the genind object
+  tmp_genos <- neutral_snps@tab[grep(paste(paste("^", tmp_indivs, "$", sep = ""), collapse = "|"), dimnames(neutral_snps@tab)[[1]]), ]
+  
+  # Each column is a locus-allele, the value within each cell specifies whether an individual has zero, one or two of the given alleles
+  # str(tmp_genos)
+  
+  # Iterate over loci to pick the reference allele and count how many reference alleles are present per locus across individuals for the given population
+  loci <- names(neutral_snps@all.names)
+  
+  chroms <- unlist(pblapply(1:length(loci), function(z){
+
+    tmp_locus <- tmp_genos[, grep(paste("^", loci[z], ".", sep = ""), dimnames(tmp_genos)[[2]])]
+    
+    # Make the reference allele the smaller locus ID, will be the same across populations at each given locus
+    ref <- dimnames(tmp_locus)[[2]][1]
+    
+    # Count number of reference alleles, remove NAs if not all individuals have them
+    if(!all(is.na(tmp_locus[, ref]))){
+      tmp <- tmp_locus[, ref]
+      chroms <- length(tmp[!is.na(tmp)])*2 # (diploid individuals)
+    } else {
+      chroms <- 0
+    }
+    
+    return(chroms)
+    
+  }))
+  
+  return(chroms)
+ 
+}))
+
+which(samp_mat == 0) # No populations have zero individuals (chromosomes) sampled
+str(samp_mat)
+
+samp_mat <- matrix(samp_mat, nrow = length(pops), ncol = length(names(neutral_snps@all.names)))
+str(samp_mat)
+
+```
+
+Get pairwise FST among all populations of interest. Can the resulting matrix be used for clustering?
+```{r echo = TRUE, eval = TRUE}
+
+# These values seem really high for FST
+pw_fst <- calculate.all.pairwise.Fst(geno_mat, samp_mat)
+pw_fst
+
+# 0.2989287 to 0.3420954
+range(pw_fst[lower.tri(pw_fst)])
+
+# Gaussian mixture modelling without setting number of mixture components
+gmm <- Mclust(data = pw_fst)
+
+gmm$classification
+
+iso <- isoMDS(stats::as.dist(pw_fst), k = 2, maxit = 1000)
+
+mds_df <- data.frame(X = iso$points[, 1], Y = iso$points[, 2]) %>%
+  dplyr::mutate(
+    pop = factor(pops, levels = pops),
+    cluster = factor(gmm$classification)
+  )
+
+all_regs <- c("Southwestern Uruguay", "South Central Uruguay", "Northern Argentina", "Southern Argentina", "Spain", "Southern U.S.", "Northern U.S.")
+
+# Uruguay in blues, Argentina in grays, Spain in reds, US in golds
+cols <- c("navy", "royalblue", "gray50", "black", "firebrick", "orange", "gold4")
+
+# Shapes by country
+pchs <- c(rep(19, 2), rep(18, 2), rep(15, 1), rep(17, 2))
+
+# No clear pattern here
+mds_df %>%
+  ggplot(aes(x = X, y = Y, color = pop, shape = pop)) +
+  geom_point(size = 4) +
+  scale_color_manual(values = cols) +
+  scale_shape_manual(values = pchs) +
+  theme_bw()
+  
+```
+
+Making files to run Stacks::populations to calculate F-statistics. Here, I want a whitelist of the pre-processed neutral and outlier loci, as well as two sets of population maps: individuals with populations as sampling sites, or individuals with populations as regions, with individuals dropped in pre-processing commented out. Stacks::populations will calculate pairwise FST by locus among each pair of populations, and the summary_fst file yields the overall average FST between each pair of populations.
+
+Whitelist of loci, these should be just the locus ID in the first column. Make the whitelist SNP specific by adding the SNP position as a second tab-separated column. Wrote these files to the info directory.
+```{r echo = TRUE, eval = TRUE}
+
+# Read in the SNPs prior to splitting into neutral and outliers
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups.str"
+
+allfilt_snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 561, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(allfilt_snps)
+
+# Get the locus IDs
+loci <- names(allfilt_snps@all.names)
+
+# Get SNP positions
+snp_pos <- pbsapply(1:length(loci), function(i){
+  strsplit(loci[i], split = "_")[[1]][2]
+})
+
+# Convert locus IDs to right format
+loci <- pbsapply(1:length(loci), function(i){
+  strsplit(loci[i], split = "_")[[1]][1]
+})
+length(loci)
+
+# Write locus IDs to a file that will be used as a whitelist for Stacks 
+file_nm <- "whitelist"
+file.remove(file.path(map_path, file_nm))
+
+invisible(pbsapply(1:length(loci), function(i){
+
+  if(i != length(loci)){
+    cat(paste(c(loci[i], "\t", snp_pos[i], "\n"), collapse = ""), file = file.path(map_path, file_nm), append = TRUE, sep = "")
+  } else {
+    cat(paste(c(loci[i], "\t", snp_pos[i]), collapse = ""), file = file.path(map_path, file_nm), append = TRUE, sep = "")
+  }
+
+}))
+
+# Opened this in Vim, looks good
+
+```
+
+Population maps with desired individuals, populations as sampling sites or as regions. First, a map by sampling sites. Since individuals previously dropped are no longer present, Stacks::populations will use all uncommented individuals in the population maps.
+```{r echo = TRUE, eval = TRUE}
+
+indivs <- dimnames(allfilt_snps@tab)[[1]]
+indivs  
+
+# Get sampling sites for these individuals
+sites <- meta_dats$Site_Code[grep(paste(paste("^", indivs, "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)]
+sites
+
+# Initialize file name
+file_nm <- file.path(map_path, "popmap_merged_filtered_FstatsBySite.txt")
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_merged_filtered_FstatsBySite.txt"))
+
+# Iterate over individuals to write out lines to this file
+# i <- 1
+invisible(pblapply(1:length(indivs), function(i){
+  
+  # Initialize the region for the given sample
+  reg <- sites[i]
+  
+ # Initialize the suffix to go after the sample name
+  # Use ".1" for the PE reads here, since I used only the forward reads when merging SE and PE libraries
+  suff <- ifelse(grepl("^SE_", indivs[i]), ".fil.sorted", ".1.sorted")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+  if(i != length(indivs)){
+    tmp_line <- paste(paste(paste(indivs[i], suff, sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(indivs[i], suff, sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Opened the file in Vim to doublecheck structure, looks good
+
+```
+
+Second, a map by region. Since individuals previously dropped are no longer present, Stacks::populations will use all uncommented individuals in the population maps.
+```{r echo = TRUE, eval = TRUE}
+
+indivs <- dimnames(allfilt_snps@tab)[[1]]
+indivs  
+
+# Get sampling sites for these individuals
+regions <- meta_dats$Region[grep(paste(paste("^", indivs, "$", sep = ""), collapse = "|"), meta_dats$Sample_Name)]
+regions
+
+# Initialize file name
+file_nm <- file.path(map_path, "popmap_merged_filtered_FstatsByRegion.txt")
+
+# Remove previous versions
+file.remove(file.path(map_path, "popmap_merged_filtered_FstatsByRegion.txt"))
+
+# Iterate over individuals to write out lines to this file
+# i <- 1
+invisible(pblapply(1:length(indivs), function(i){
+  
+  # Initialize the region for the given sample
+  reg <- regions[i]
+  
+ # Initialize the suffix to go after the sample name
+  # Use ".1" for the PE reads here, since I used only the forward reads when merging SE and PE libraries
+  suff <- ifelse(grepl("^SE_", indivs[i]), ".fil.sorted", ".1.sorted")
+  
+  # If not on the last individual, write out a new line symbol to start the next sample on a new line
+  # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+  if(i != length(indivs)){
+    tmp_line <- paste(paste(paste(indivs[i], suff, sep = ""), reg, sep = "\t"), "\n", sep = "")
+  } else {
+    tmp_line <- paste(paste(indivs[i], suff, sep = ""), reg, sep = "\t")
+  }
+  
+  if(i == 1){
+    cat(tmp_line, file = file_nm)
+  } else {
+    cat(tmp_line, file = file_nm, append = TRUE)
+  }
+  
+}))
+
+# Opened the file in Vim to doublecheck structure, looks good
+
+```
+
+Finally, after checking out these values, I'd like to use Stacks::populations to write out a VCF file for the desired loci and individuals with populations to be used for ABC. I think this will be better than converting the current Structure file I have to a VCF with the radiator package in R. 
+
+Also make a whitelist of the 320 neutral loci that will be retained for each VCF file.
+```{r echo = TRUE, eval = TRUE}
+
+# Read in the SNPs prior to splitting into neutral and outliers
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str"
+
+snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 320, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(snps)
+
+# Get the locus IDs
+loci <- names(snps@all.names)
+
+# Get SNP positions
+snp_pos <- pbsapply(1:length(loci), function(i){
+  strsplit(loci[i], split = "_")[[1]][2]
+})
+
+# Convert locus IDs to right format
+loci <- pbsapply(1:length(loci), function(i){
+  strsplit(loci[i], split = "_")[[1]][1]
+})
+length(loci)
+
+# Write locus IDs to a file that will be used as a whitelist for Stacks 
+file_nm <- "whitelist_neutralSNPs"
+file.remove(file.path(map_path, file_nm))
+
+invisible(pbsapply(1:length(loci), function(i){
+
+  if(i != length(loci)){
+    cat(paste(c(loci[i], "\t", snp_pos[i], "\n"), collapse = ""), file = file.path(map_path, file_nm), append = TRUE, sep = "")
+  } else {
+    cat(paste(c(loci[i], "\t", snp_pos[i]), collapse = ""), file = file.path(map_path, file_nm), append = TRUE, sep = "")
+  }
+
+}))
+
+# Opened this in Vim, looks good
+
+```
+
+Made a second whitelist of the outlier loci only. This will be used together with the whitelist of neutral loci to get F-statistics for neutral and outlier loci, to complement F-statistics I obtained previously for neutral and outlier SNPs combined. 
+```{r echo = TRUE, eval = TRUE}
+
+# Read in the SNPs prior to splitting into neutral and outliers
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_outlierSNPs.str"
+
+snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 241, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(snps)
+
+# Get the locus IDs
+loci <- names(snps@all.names)
+
+# Get SNP positions
+snp_pos <- pbsapply(1:length(loci), function(i){
+  strsplit(loci[i], split = "_")[[1]][2]
+})
+
+# Convert locus IDs to right format
+loci <- pbsapply(1:length(loci), function(i){
+  strsplit(loci[i], split = "_")[[1]][1]
+})
+length(loci)
+
+# Write locus IDs to a file that will be used as a whitelist for Stacks 
+file_nm <- "whitelist_outlierSNPs"
+file.remove(file.path(map_path, file_nm))
+
+invisible(pbsapply(1:length(loci), function(i){
+
+  if(i != length(loci)){
+    cat(paste(c(loci[i], "\t", snp_pos[i], "\n"), collapse = ""), file = file.path(map_path, file_nm), append = TRUE, sep = "")
+  } else {
+    cat(paste(c(loci[i], "\t", snp_pos[i]), collapse = ""), file = file.path(map_path, file_nm), append = TRUE, sep = "")
+  }
+
+}))
+
+# Opened this in Vim, looks good
+
+```

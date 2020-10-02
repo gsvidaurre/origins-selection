@@ -13,6 +13,8 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate. Also installed the package radiator to convert between genind object and VCF format, needed to use Python code in another GitHub repo to get observed SFS data.
 
+Here, 6 models will be run per invasive population with sufficient samples: Uruguay (URY) origin, Northern Argentina (NAR) origin, admixed origin, and these same 3 models but with a longer bottleneck time that goes to the present. 
+
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
 rm(list = ls())
@@ -31,6 +33,9 @@ res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
 
 # Path where ABC files will be written
 out_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/ABC"
+ 
+# Path where population maps written
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
 
 gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
 seed <- 401
@@ -56,6 +61,183 @@ str(neutral_snps)
 str(neutral_snps@tab)
 
 ```
+
+# Making population maps to get VCF files via Stacks for ABC modelling
+
+How many invasive populations have sufficient samples (> 4 individuals) for ABC modelling?
+```{r echo = TRUE, eval = TRUE}
+
+# Get sampling sites
+sites <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(sites)
+
+# Get sampling regions
+regions <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Region[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(regions)
+
+# Get native or invasive range
+ranges <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Population[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(ranges)
+
+samps_df <- data.frame(indiv = dimnames(neutral_snps@tab)[[1]]) %>%
+  dplyr::mutate(
+    site = sites,
+    region = regions,
+    range = ranges
+  )
+glimpse(samps_df)
+
+# Only SEVI has too few samples (1 bird) for modelling
+samps_df %>%
+  filter(range == "Invasive") %>%
+  group_by(site) %>%
+  dplyr::summarise(
+    n_indivs = n_distinct(indiv) 
+  )
+
+# Remove the SEVI individual, and all SAR individuals
+samps_df <- samps_df %>%
+  filter(site != "SEVI") %>%
+  filter(region != "Southern Argentina") %>%
+  droplevels()
+glimpse(samps_df)
+
+samps_df %>%
+  pull(region) %>%
+  unique()
+
+# Add a column indicating population label for ABC modelling
+samps_ABC_df <- samps_df %>%
+  dplyr::mutate(
+    ABC_pop = region,
+    ABC_pop = recode(ABC_pop,
+      `Southwestern Uruguay` = "pop1",
+      `South Central Uruguay` = "pop1",
+      `Spain` = "pop2",
+      `Northern United States` = "pop2",
+      `Southern United States` = "pop2",
+      `Northern Argentina` = "pop3"
+    )
+  )
+glimpse(samps_ABC_df)
+
+# Randomly select 10 birds per region of URY to make models less unbalaned (oterwise 14 NAR and 45 URY individuals per model)
+samps_ABC_df <- samps_ABC_df %>%
+  filter(grepl("Uruguay", region)) %>%
+  group_by(region) %>%
+  nest() %>%
+  ungroup() %>%
+  dplyr::mutate(
+    rsamp = map2(data, 10, sample_n, replace = FALSE)
+  ) %>%
+  select(-data) %>%
+  unnest(rsamp) %>%
+  bind_rows(
+    samps_ABC_df %>%
+    filter(!grepl("Uruguay", region))
+  )
+
+# glimpse(samps_ABC_df)
+# View(samps_ABC_df)
+
+```
+
+Make a population map per each of the remaining 9 invasive populations. This map will have URY, NAR and INV birds (per each invasive population), but not SAR (to avoid making models too complex). The population map should encode URY individuals as pop1, INV individuals as pop2, and NAR individuals as pop3.
+```{r echo = TRUE, eval = TRUE}
+
+# Iterate over invasive range sampling sites
+sites <- samps_ABC_df %>%
+  filter(range == "Invasive") %>%
+  pull(site) %>%
+  unique() %>%
+  as.character()
+sites 
+length(sites)  
+
+# x <- 1
+# i <- 1
+invisible(pblapply(1:length(sites), function(x){
+  
+  # Initialize file name
+  file_nm <- file.path(map_path, paste("popmap_mergedSNPs_ABCmodelling_", sites[x], ".txt", sep = ""))
+
+  # Remove previous versions
+  file.remove(file.path(map_path, paste("popmap_mergedSNPs_ABCmodelling_", sites[x], ".txt", sep = "")))
+  
+  # Get individuals for the given iteration
+  tmp_df <- samps_ABC_df %>%
+    filter(range == "Native" | site == sites[x]) %>%
+    droplevels()
+  
+  # Order by ABC population
+  tmp_df <- tmp_df %>%
+    arrange(-desc(ABC_pop))
+  # glimpse(tmp_df)
+  # View(tmp_df)
+    
+  # Get individuals
+  indivs <- tmp_df %>%
+    pull(indiv) %>%
+    as.character()
+  
+  # Get ABC populations
+  ABC_pops <- tmp_df %>%
+    pull(ABC_pop) %>%
+    as.character()
+  
+  # Iterate over individuals to write out lines to this file
+  pblapply(1:length(indivs), function(i){
+  
+    # Initialize the ABC population for the given sample
+    reg <- ABC_pops[i]
+  
+    # Initialize the suffix to go after the sample name
+    # Use ".1" for the PE reads here, since I used only the forward reads when merging SE and PE libraries
+    suff <- ifelse(grepl("^SE_", indivs[i]), ".fil.sorted", ".1.sorted")
+  
+    # If not on the last individual, write out a new line symbol to start the next sample on a new line
+    # No suffix after the sample name, to allow Stacks to recognize the paired-end file suffix after kmer_filter (.1.1.fil.fq and .2.2.fil.fq)
+    if(i != length(indivs)){
+      tmp_line <- paste(paste(paste(indivs[i], suff, sep = ""), reg, sep = "\t"), "\n", sep = "")
+    } else {
+      tmp_line <- paste(paste(indivs[i], suff, sep = ""), reg, sep = "\t")
+    }
+  
+    if(i == 1){
+      cat(tmp_line, file = file_nm)
+    } else {
+      cat(tmp_line, file = file_nm, append = TRUE)
+    }
+  
+  })
+ 
+}))
+
+# Opened these files in Vim to doublecheck structure, looks good
+
+# BARC: 39 individuals total
+# CNCT: 61 individuals total
+# FLOR: 63 individuals total
+# GRCA: 40 individuals total
+# ILLI: 42 individuals total
+# MADR: 39 individuals total
+# MALL: 41 individuals total
+# WASH: 38 individuals total
+# ZARA: 38 individuals total
+
+```
+
+The whitelist of the 320 neutral loci made in "FST_calculations.Rmd" will be used to retain these neutral loci for each VCF file. 
+
+Once these were made, I uploaded to the info folder on Discovery, and made a new script to run Stacks::populations with the whitelist of 320 neutral loci to get VCF files so as to calculate the observed mSFS with easySFS.py.
+
+### OLDER CODE
 
 Make a new data frame with metdata for these samples. Using DAPC output here. 
 ```{r echo = TRUE, eval = TRUE}
@@ -103,6 +285,234 @@ glimpse(dapc_df)
 ```
 
 Make new files called "ABC_populations_modelX.txt" that contain strata or populations for each ABC model (necessary for writing out VCF file and getting observed SFS per ABC model).
+
+Initialize all unique demes to be used across models: URY-NAR, URY, NAR, SAR, SPA, USA, CNCT. 
+```{r echo = TRUE, eval = TRUE}
+
+# URY-NAR, 59 individuals
+ury_nar <- dapc_df %>%
+  filter(grepl("Uruguay|Northern Argentina", region)) %>%
+  pull(indiv) 
+
+head(ury_nar)
+length(ury_nar)
+
+# URY, 45 individuals
+ury <- dapc_df %>%
+  filter(grepl("Uruguay", region)) %>%
+  pull(indiv) 
+
+head(ury)
+length(ury)
+  
+# NAR, 14 individuals
+nar <- dapc_df %>%
+  filter(grepl("Northern Argentina", region)) %>%
+  pull(indiv) 
+
+head(nar)
+length(nar)  
+
+# SAR, 18 individuals
+sar <- dapc_df %>%
+  filter(grepl("Southern Argentina", region)) %>%
+  pull(indiv) 
+
+head(sar)
+length(sar)
+
+```
+
+# Native range ABC modelling
+
+Models 1 and 3: 2 demes. Make a tab delimited file with column headers INDIVIDUALS and STRATA for radiator::genomic_converter. Make a tab delimited file without headers for the easy_SFS.py script.
+```{r echo = TRUE, eval = FALSE}
+
+# Make a temporary data frame for Model 1
+tmp_df <- dapc_df %>%
+  filter(indiv %in% c(ury, nar, sar)) %>%
+  droplevels() %>%
+  dplyr::mutate(
+    region = as.character(region),
+    region = recode(
+      region,
+      `Southwestern Uruguay` = "URY-NAR",
+      `South Central Uruguay` = "URY-NAR",
+      `Northern Argentina` = "URY-NAR",
+      `Southern Argentina` = "SAR"
+    )
+  ) %>%
+  dplyr::mutate(
+    pop = region,
+    pop = recode(
+      pop,
+      `URY-NAR` = "pop1",
+      `SAR` = "pop2"
+    )
+  )
+glimpse(tmp_df)  
+# View(tmp_df) # looks good
+
+# Order by population
+tmp_df <- tmp_df %>%
+  arrange(-desc(pop))
+
+glimpse(tmp_df) 
+
+# Text file for radiator
+file_nm <- "radiator_strata_models_1and3.tsv"
+file.remove(file.path(out_path, file_nm))
+
+header <- c(paste(c("INDIVIDUALS", "STRATA"), collapse = "\t"), "\n")
+
+cat(header, file = file.path(out_path, file_nm), append = TRUE, sep = "")
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+
+# Text file for easy_SFS.py (no column headers)
+file_nm <- "easySFS_popfile_models_1and3.txt"
+file.remove(file.path(out_path, file_nm))
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+# Opened both files in Vim, both look good
+
+```
+
+Models 2 and 4: 3 demes.
+```{r echo = TRUE, eval = FALSE}
+
+# Make a temporary data frame for Model 2
+tmp_df <- dapc_df %>%
+  filter(indiv %in% c(ury, nar, sar)) %>%
+  droplevels() %>%
+  dplyr::mutate(
+    region = as.character(region),
+    region = recode(
+      region,
+      `Southwestern Uruguay` = "URY",
+      `South Central Uruguay` = "URY",
+      `Northern Argentina` = "NAR",
+      `Southern Argentina` = "SAR"
+    )
+  ) %>%
+  dplyr::mutate(
+    pop = region,
+    pop = recode(
+      pop,
+      `URY` = "pop1",
+      `NAR` = "pop2",
+      `SAR` = "pop3"
+    )
+  )
+glimpse(tmp_df)  
+# View(tmp_df) # looks good
+
+# Order by population
+tmp_df <- tmp_df %>%
+  arrange(-desc(pop))
+
+glimpse(tmp_df)
+
+# Text file for radiator
+file_nm <- "radiator_strata_models_2and4.tsv"
+file.remove(file.path(out_path, file_nm))
+
+header <- c(paste(c("INDIVIDUALS", "STRATA"), collapse = "\t"), "\n")
+
+cat(header, file = file.path(out_path, file_nm), append = TRUE, sep = "")
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+
+# Text file for easy_SFS.py (no column headers)
+file_nm <- "easySFS_popfile_models_2and4.txt"
+file.remove(file.path(out_path, file_nm))
+
+invisible(pbsapply(1:nrow(tmp_df), function(i){
+  
+  # Substituted "_" for "-" as this was done in radiator for sample names when convertin to VCF
+  cat(c(gsub("_", "-", tmp_df$indiv[i]), "\t", tmp_df$pop[i], "\n"), file = file.path(out_path, file_nm), append = TRUE, sep = "")
+  
+}))
+
+# Opened both files in Vim, both look good
+
+```
+
+Used radiator to convert from genind format to VCF per model, write out VCF files per models with the same demes. radiator path setting is bad: assumes a path inside thre current working directory, so I have to set my directory for it to work
+```{r echo = TRUE, eval = FALSE}
+
+setwd(out_path)
+
+sfiles <- list.files(out_path, pattern = "^radiator_", full.names = TRUE)
+sfiles
+
+runs <- seq(1, 2, 1)
+suffs <- c("models_1and3", "models_2and4")
+
+class(neutral_snps)
+detect_genomic_format(neutral_snps)
+
+# i <- 1
+invisible(pblapply(1:length(runs), function(i){
+  genomic_converter(data = neutral_snps, output = "vcf", filename = paste("ABC_", suffs[i], sep = ""), strata = sfiles[i], vcf.metadata = FALSE, vcf.stats = FALSE)
+  # any(is.na(tmp$tidy.data$MARKERS))
+  # any(is.na(tmp$tidy.data$POP_ID))
+  # any(is.na(tmp$tidy.data$INDIVIDUALS))
+  # any(is.na(tmp$tidy.data$GT))
+  # any(is.na(tmp$tidy.data$REF))
+  # any(is.na(tmp$tidy.data$ALT))
+  # any(is.na(tmp$tidy.data$GT_VCF))
+  # any(is.na(tmp$tidy.data$GT_BIN)) # This column has NAs....
+  
+  # Works just fine, underscores are automatically changed to dashes
+  # read_strata(sfiles[i])
+  
+}))
+
+# For every run I get an error that a separator is not valid, despite changing all "_" to "-" but the strata file is read in just fine and the package detects the genind class
+
+# I also get an error about NAs created which I think is related to the NA in the POS field in the resulting VCF file, but everything else looks good:
+# Warning messages:
+# 1: Problem with `mutate()` input `LOCUS`.
+# ℹ NAs introduced by coercion
+# ℹ Input `LOCUS` is `stringi::stri_join(LOCUS, as.numeric(POS) - 1, sep = "_")`. 
+# 2: In stringi::stri_join(LOCUS, as.numeric(POS) - 1, sep = "_") :
+#   NAs introduced by coercion
+
+# Looks like this just an error from reading in data with tifyr?
+# Resulting VCF file looks different compared to Stacks VCF file, has just genotypes
+
+```
+
+I moved the resulting VCF files out of the ./radiator_genomic_converter* directories and into /media/owner/MYIOPSITTA/R/Origins_Selection/ABC/.
+
+Followed instructions for calculating observed SFSs in this GitHub repo: https://github.com/isaacovercast/easySFS. I used Pycharm to use a virtual environment with Python3.
+
+After using easySFS.py to downproject and get mSFS, I started running simulations for these 4 models on Discovery with fastsimcoal2.6. See the delimitR tutorial for more details.
+
+ 
+
+
+
+########## OLDER, Update as needed
 
 Initialize all unique demes to be used across models: URY-NAR, URY, NAR, SAR, SPA, USA, CNCT. 
 ```{r echo = TRUE, eval = TRUE}
