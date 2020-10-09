@@ -1,10 +1,11 @@
 #!/bin/bash
 ## G.Smith-Vidaurre
 ## 22 September 2020
+## Updated 01 October 2020
 
-## Purpose: Run Structure over K1 to K26 with the merged pre-processed neutral SNPs. Each K will be run 10 times.
+## Purpose: Run Structure over K1 to K26 with the merged pre-processed neutral SNPs. Each K will be run 10 times. See mainparams per K sub-directory and analysis log for how Structure runs were parameterized. Had to start a second run for K21 to K26 on 01 October 2020, the previous run hit the max wall time after only halfway through K21
 
-#SBATCH --job-name Structure
+#SBATCH --job-name Structure2
 #SBATCH --partition normal ## default
 #SBATCH --nodes 1 ## default
 #SBATCH --ntasks 1 ## default
@@ -20,15 +21,17 @@
 module load structure
 
 src=/scratch/gsmithvi/Structure
+in_file=merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str
 
 # Iterate over K, perform 10 iterations per K value
-for K in `seq 1 26`;
+# for K in `seq 1 26`; # first run
+for K in `seq 21 26`; # second run
 	do
 	out_path=$src/K$K;
 	
 	for i in `seq 1 10`;
 		do
-		file=merged_neutralSNPs_K$K_rep$i
-		structure -K $K -o $out_path/$file
+		file=merged_neutralSNPs_K$K"_rep$i"
+		structure -K $K -i $out_path/$in_file -o $out_path/$file -m $out_path/mainparams -e $out_path/extraparams
 	done
 done

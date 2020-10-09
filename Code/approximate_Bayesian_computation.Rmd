@@ -22,7 +22,7 @@ rm(list = ls())
 # library(devtools)
 # install_github("thierrygosselin/radiator")
 
-X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "abcrf", "delimitR", "radiator")
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "abcrf", "delimitR")
 invisible(lapply(X, library, character.only = TRUE))
 
 # Path to the metadata spreadsheet
@@ -236,6 +236,139 @@ invisible(pblapply(1:length(sites), function(x){
 The whitelist of the 320 neutral loci made in "FST_calculations.Rmd" will be used to retain these neutral loci for each VCF file. 
 
 Once these were made, I uploaded to the info folder on Discovery, and made a new script to run Stacks::populations with the whitelist of 320 neutral loci to get VCF files so as to calculate the observed mSFS with easySFS.py.
+
+## Testing delimitR model selection with fsc26 simulated data
+
+Using 4 bins because this was the minimum number of individuals used for any sampling site. Testing with BARC. From delimitRmanual: "If you conducted downsampling using scripts provided in the BuildmSFS directory (or another method), the traits file provided will be pre-downsampling and consist of the original individuals used to construct the SFS."
+```{r echo = TRUE, eval = TRUE}
+
+tmp_path <- file.path(out_path, "ABC_BARC")
+
+# Make a traits file
+file_nm <- "popmap_mergedSNPs_ABCmodelling_BARC.txt"
+
+pop_map <- read.table(file.path(tmp_path, file_nm), sep = "\t")
+str(pop_map)
+# nrow(pop_map)
+
+# Substitute populations with a zero-based naming system
+pop_map$V2 <- as.numeric(gsub("pop", "", pop_map$V2))
+pop_map$V2 <- pop_map$V2 - 1
+  
+# Remove previous versions
+file.remove(file.path(tmp_path, "traits.txt"))
+
+# Print the header
+header <- c(paste(c("traits", "species"), collapse = "\t"), "\n", sep = "")
+cat(header, file = file.path(tmp_path, "traits.txt"), append = TRUE, sep = "")
+
+# Print rows
+  
+# x <- 1
+invisible(pblapply(1:nrow(pop_map), function(x){
+  
+  # Initialize file name
+  tmp_nm <- file.path(tmp_path, "traits.txt")
+
+  if(x != nrow(pop_map)){
+    cat(paste(pop_map[x, 1], pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+  } else {
+    cat(paste(pop_map[x, 1], pop_map[x, 2], collapse = "\t"), file = tmp_nm, sep = "", append = TRUE)
+  }
+
+}))
+
+# Looks good
+
+nClasses <- 4
+
+obsprefix <- "BARC_model"
+obsspecies <- 3 # Number of demes
+traitsfile <- "traits.txt"
+cores <- parallel::detectCores() - 2
+
+# This function assumes the working directory has been set to the folder containing fcs26 output folders
+# Must remove any folder previously made for the prior (called "Prior")
+setwd(tmp_path)
+FullPrior <- makeprior(
+  prefix = obsprefix,
+  nspec = obsspecies,
+  nclasses = nClasses,
+  mydir = tmp_path,
+  traitsfile = traitsfile,
+  threshold = 100,
+  thefolder = "Prior",
+  ncores = cores
+)
+str(FullPrior)
+
+saveRDS(FullPrior, file.path(tmp_path, "FullPrior.RDS"))
+
+# Remove rows with zero variance, e.g. bins for which no SNPs were ever observed across all models and simulations. 
+FullPrior <- readRDS(file.path(tmp_path, "FullPrior.RDS"))
+
+ReducedPrior <- Prior_reduced(FullPrior)
+str(ReducedPrior)
+
+saveRDS(ReducedPrior, file.path(tmp_path, "ReducedPrior.RDS"))
+
+# Build a random forests classifier that uses the bSFS (binned SFS) bins as predictors, and the model used for data simulation is the response. the abcrf package is used here. The number of trees can be supplied by the user. 
+
+# Each decision tree in the forest uses a subset of the prior (still not sure what this means), and each node considers a bin of the bSFS (does this mean mtry is set to 1?). Then a binary decision rule is made based on the number of SNPs per bin. Observed data can be used as a prediction dataset that is run down the trained RF classifier, and the each decision tree votes for a demographic model. Since this is an RF classifier, the model with the greatest number of votes (leaves in the forest) wins.
+
+# Error: cannot allocate vector of size 1.4 Mb
+# In addition: Warning message:
+# In lda.default(x, grouping, ...) : variables are collinear
+# barc_RF <- RF_build_abcrf(ReducedPrior, FullPrior, 500)
+# barc_RF
+
+# Code from RF_build_abcrf
+Models <- as.factor(FullPrior[, "Model"])
+
+# rm(list = "FullPrior")
+
+# Trainingdata <- data.frame(Models, ReducedPrior)
+# RF <- abcrf::abcrf(Models ~ ., data = Trainingdata, ntree = 500, 
+        # paral = TRUE)
+
+# I did training on Discovery
+barc_RF <- readRDS(file.path(tmp_path, "trained_reduced_Prior.RDS"))
+str(barc_RF)
+class(barc_RF)
+
+ReducedPrior <- readRDS(file.path(tmp_path, "ReducedPrior.RDS"))
+str(ReducedPrior)
+
+# 180k simulations...why? I thought I did 10k simulations per model, so there should be 60k. Why are there 3x more?
+# The OOB error rate is 0%, suspiciously perfect 
+barc_RF
+
+# A plot of the reference table on LDA axes, in other words, separation of te simulated data by model in lower dimensional space, the reference table is used in model choice
+plot(barc_RF, training = ReducedPrior)
+
+# Run the observed BARC mSFS down the trained model
+# Get the observed data into the correct format
+observedSFS <- file.path(tmp_path, "BARC_model_MSFS")
+traits <- file.path(tmp_path, traitsfile)
+
+# From earlier in delimitR tutorial: The user must also provide a vector of sample sizes. Again, this must be compatible with the traits file and the observed SFS. The sample sizes should be specified in order from population 0 to population n-1. These should be the numbers AFTER downsampling.
+
+# How did downsampling of the mSFS change sample sizes? I may have made the prior with the wrong threshold
+# The observed mSFS has 3 demes, then 36, 10, 24, corresponding to 18, 5, and 12 samples
+# Looks like I should probably rerun BARC fsc26 simulations with these sample sizes, and then redo priors, model training
+# Also keep in mind that prior to training, really should make classifiers to hoptimhize bins
+barc_observed <- prepobserved(
+  observedSFS,
+  FullPrior,
+  ReducedPrior,
+  nClasses,
+  obsspecies,
+  traitsfile = traits,
+  threshold = 100
+)
+
+```
+
 
 ### OLDER CODE
 

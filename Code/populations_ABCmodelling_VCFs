@@ -1,0 +1,39 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 02 October 2020
+## Updated 03 October 2020
+
+## Purpose: Run populations over each population map designed to make VCF files per invasive population (sampling site) that will be used for ABC modelling, using a whitelist of the 320 merged neutral SNPs with the 173 individuals remaining after pre-processing. I removed the -r flag and -min-maf flag to retain all loci, since these have already been pre-processed. 
+
+#SBATCH --job-name ABC_VCFs
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1500M # default is 500M
+#SBATCH --time 5-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load stacks
+
+in_path=/scratch/gsmithvi/stacks/merged/sorted_bams
+wl_file=/scratch/gsmithvi/info/whitelist_neutralSNPs
+
+map_path=/scratch/gsmithvi/info 
+
+# Get all ABC population maps as an array
+popmaps=($map_path/popmap_mergedSNPs_ABCmodelling_*)
+
+# Run Stacks::populations with each population map and the whitelist of neutral SNPs
+# Need to write files to a new directory per population, otherwise files will be overwritten
+for i in "${!popmaps[@]}"; do
+	j=$(($i+1));
+	out_path=/scratch/gsmithvi/stacks/merged/ABC_modelling/invpop"_$j";
+	poplog_file=$out_path/populations_ABC_VCFs_invpop"_$j".oe;
+	populations --in-path $in_path --out-path $out_path --popmap "${popmaps[$i]}" -W $wl_file -t 4 --fasta-loci --vcf --genepop --structure &> $poplog_file;
+done
+

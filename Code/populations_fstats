@@ -1,0 +1,89 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 01 October 2020
+## Updated 02 October 2020
+
+## Purpose: Run populations over each population map designed to calculate F-statistics either by sampling site or region, and using a whitelist of the 561 merged SNPs (outliers and neutral SNPs) with the 173 individuals remaining after pre-processing. I removed the -r and -min-maf flags to retain all loci, since these have already been pre-processed. Also got F-statistics for sites and regions using the whitelists of 320 neutral and 241 outlier loci uploaded 02 October 2020.
+
+#SBATCH --job-name fstats
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1500M # default is 500M
+#SBATCH --time 5-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load stacks
+
+in_path=/scratch/gsmithvi/stacks/merged/sorted_bams
+
+############ All merged and pre-processed SNPs (541) #####################
+
+# wl_file=/scratch/gsmithvi/info/whitelist
+
+# F-statistics among sampling sites
+ 
+# out_path=/scratch/gsmithvi/stacks/merged/fstats_sites
+# popmap=/scratch/gsmithvi/info/popmap_merged_filtered_FstatsBySite.txt
+# poplog_file=$out_path/populations_shared_SNPs_fstatsSites.oe
+
+# populations --in-path $in_path --out-path $out_path --popmap $popmap -W $wl_file -t 4 --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+
+# F-statistics among regions
+
+# out_path=/scratch/gsmithvi/stacks/merged/fstats_regions
+# popmap=/scratch/gsmithvi/info/popmap_merged_filtered_FstatsByRegion.txt
+# poplog_file=$out_path/populations_shared_SNPs_fstatsRegions.oe
+
+# populations --in-path $in_path --out-path $out_path --popmap $popmap -W $wl_file -t 4 --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+
+############ Neutral SNPs (320) #####################
+
+wl_file=/scratch/gsmithvi/info/whitelist_neutralSNPs
+
+# F-statistics among sampling sites
+
+out_path=/scratch/gsmithvi/stacks/merged/fstats_sites_neutralSNPs
+popmap=/scratch/gsmithvi/info/popmap_merged_filtered_FstatsBySite.txt
+poplog_file=$out_path/populations_shared_SNPs_fstatsSites_neutralSNPs.oe
+
+populations --in-path $in_path --out-path $out_path --popmap $popmap -W $wl_file -t 4 --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+
+# F-statistics among regions
+
+out_path=/scratch/gsmithvi/stacks/merged/fstats_regions_neutralSNPs
+popmap=/scratch/gsmithvi/info/popmap_merged_filtered_FstatsByRegion.txt
+poplog_file=$out_path/populations_shared_SNPs_fstatsRegions_neutralSNPs.oe
+
+populations --in-path $in_path --out-path $out_path --popmap $popmap -W $wl_file -t 4 --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+
+############ Outlier SNPs (241) #####################
+
+wl_file=/scratch/gsmithvi/info/whitelist_outlierSNPs
+
+# F-statistics among sampling sites
+
+out_path=/scratch/gsmithvi/stacks/merged/fstats_sites_outlierSNPs
+popmap=/scratch/gsmithvi/info/popmap_merged_filtered_FstatsBySite.txt
+poplog_file=$out_path/populations_shared_SNPs_fstatsSites_outlierSNPs.oe
+
+populations --in-path $in_path --out-path $out_path --popmap $popmap -W $wl_file -t 4 --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+
+
+# F-statistics among regions
+
+out_path=/scratch/gsmithvi/stacks/merged/fstats_regions_outlierSNPs
+popmap=/scratch/gsmithvi/info/popmap_merged_filtered_FstatsByRegion.txt
+poplog_file=$out_path/populations_shared_SNPs_fstatsRegions_outlierSNPs.oe
+
+populations --in-path $in_path --out-path $out_path --popmap $popmap -W $wl_file -t 4 --fstats --fasta-loci --vcf --genepop --structure &> $poplog_file
+

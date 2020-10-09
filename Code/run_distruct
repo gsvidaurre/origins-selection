@@ -1,0 +1,10 @@
+#!/bin/bash
+# Smith-Vidaurre
+# 08 October 2020
+# Updated 08 October 2020
+
+# Purpose: Run distruct on the CLUMPP output downloaded from Discovery.
+
+src=/media/owner/MYIOPSITTA/R/Origins_Selection/Structure/CLUMPP_results
+
+wine $src/distructWindows1.1.exe -d $src/drawparams -K 2 -M 25 -N 173 -p $src/K2.popq -i $src/K2.indq -o $src/K2.ps

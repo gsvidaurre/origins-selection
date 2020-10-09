@@ -1,0 +1,314 @@
+---
+title: "Structure graphics"
+author: "Grace Smith-Vidaurre"
+date: "October 5, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Made graphics of population structure following Structure Bayesian analyses assigning individuals to distinct numbers of genetic clusters (1 - 26). pophelper version 2.3.0.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+# library(devtools)
+# install_github("royfrancis/pophelper")
+
+X <- c("tidyverse", "adegenet", "pophelper", "openxlsx", "ggplot2", "gridExtra", "gtable", "pbapply")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Structure output, neutral merged SNPs
+# path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure/StructureHavester_neutralSNPs_results"
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/FIGURES"
+seed <- 401
+
+# Need to set working directory for some functions
+setwd(path)
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Read in Structure file for neutral SNPs.
+```{r echo = TRUE, eval = TRUE}
+
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_neutralSNPs.str"
+
+neutral_snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 320, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(neutral_snps)
+
+str(neutral_snps@tab)
+
+# Populations are numbered consecutively by sampling site, but individuals are not ordered by populations
+neutral_snps@pop
+
+```
+
+Evanno method to evaluate "best" K.
+```{r echo = TRUE, eval = TRUE}
+
+# Choose runs
+struc_files <- list.files(path = path, pattern = "merged_neutralSNPs_K", full.names = TRUE)
+head(struc_files)
+
+# Read in Structure results files
+# One element per iteration of K in the resulting list
+qlist <- readQ(struc_files, filetype = "structure")
+str(qlist)
+names(qlist)
+
+# Tabulate runs, yields a data frame with one row per K and replicate
+# For STRUCTURE runs, the tabulateQ() function produces additional columns namely number of loci, number of burn-ins, number of replicates (reps), estimated ln probability of data (elpd), mean value of ln likelihood (mvll) and variance of ln likelihood (vll). The table is sorted by loci, ind and K.
+df1 <- tabulateQ(qlist)
+glimpse(df1)
+
+# Summarise runs, summarises over replicates of K, yields one row per K
+df2 <- summariseQ(df1)
+glimpse(df2)
+
+# Find "best" K with Evanno method 
+# elpdmean is mean estimated Ln probability...not NA for K1, so could be used to assess likelihood of K 1 versus K 2
+sum_stats <- evannoMethodStructure(data = df2, exportplot = FALSE, returnplot = FALSE)
+glimpse(sum_stats)
+
+# Couldn't get the plot above to work, so using my own
+sum_stats %>%
+  # Drop k = 1 and k = 26, these naturally have NAs in the delta calculation
+  filter(!is.na(deltaK)) %>%
+  ggplot(aes(x = k, y = deltaK)) +
+  geom_line() +
+  geom_point(shape = 21, size = 3, fill = "grey65") +
+  xlab("K") +
+  ylab("Delta K") +
+  scale_x_continuous(limits = c(2, 25), breaks = seq(2, 25, 1), labels = seq(2, 25, 1)) +
+  scale_y_continuous(limits = c(0, 150), breaks = seq(0, 150, 25), labels = seq(0, 150, 25)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(file.path(gpath, "DeltaK_320neutralSNPs.jpeg"), units = "in", width = 5, height = 4)
+
+# Now, estimated ln probability of data (elpd)
+sum_stats %>%
+  ggplot(aes(x = k, y = elpdmean)) +
+  geom_line() +
+  geom_point(shape = 21, size = 3, fill = "grey65") +
+  xlab("K") +
+  ylab("Mean estimated Ln probability") +
+  scale_x_continuous(limits = c(1, 26), breaks = seq(1, 26, 1), labels = seq(1, 26, 1)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(file.path(gpath, "LnProb_320neutralSNPs.jpeg"), units = "in", width = 5, height = 4)
+
+```
+
+Make a barplot for the 10 Structure K2 runs.
+```{r echo = TRUE, eval = TRUE}
+
+# These are many of the individuals that had membership of to the first cluster in K2 inside the file K2.indfile. These are the Southern Argentina individuals, with some URY, NAR, and INV individuals having partial membership as well. Not sure why the CLUMPP graphics below don't reflect this.
+dimnames(neutral_snps@tab)[[1]][c(8, 17, 18, 19, 75, 79, 83, 84, 88, 90, 126, 105, 118, 127, 132, 136, 160, 161, 164, 166, 167, 170, 173)]
+
+```
+
+Get metadata for sorting individuals in these barplots by region and sampling site.
+```{r echo = TRUE, eval = TRUE}
+
+# Get sampling sites
+sites <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(sites)
+unique(sites)
+
+# Get sampling regions
+regions <- sapply(1:nrow(neutral_snps@tab), function(i){
+  meta_dats$Region[grep(paste("^", dimnames(neutral_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(regions)
+
+# Update labels in plot
+regions <- gsub("South Central Uruguay", "South-Central\n Uruguay", regions)
+regions <- gsub("ern ", "ern\n ", regions)
+
+unique(regions)
+
+all_regs <- c("Southern\n Argentina", "Northern\n Argentina", "South-Central\n Uruguay", "Southwestern\n Uruguay", "Spain", "Southern\n United States", "Northern\n United States")
+
+fact_regions <- factor(regions, levels = all_regs)
+
+# Same order as in Structure file (taken from BayeScan_post-processing.Rmd)
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "FLOR", "ILLI", "WASH", "CNCT")
+
+fact_sites <- factor(sites, levels = all_sites)
+
+```
+
+Make barplots with CLUMPP results from Discovery run. From the pophelper vignette: "Individual labels are row names of the ‘qlist’ dataframes...The rownames of ‘qlist’ can also be modified by the user by adding custom individual labels." 
+
+Loop over K = 2 to K = 10.
+```{r echo = TRUE, eval = TRUE}
+
+Ks <- seq(2, 10, 1)
+
+# k <- 1
+qdf_list <- invisible(pblapply(1:length(Ks), function(k){
+  
+  # From the pophelper CLUMPP runs on my local machine
+  qlist_aligned <- readQ(file.path(file.path(path, "CLUMPP_results/clumpp_pophelper"), paste("pop_K", Ks[k], "-combined-merged.txt", sep = "")), filetype = "clumpp")
+  # str(qlist_aligned)
+
+  # Sorting individuals by region and site
+  qlist_aligned[[1]]$regions <- as.numeric(fact_regions)
+  qlist_aligned[[1]]$sites <- as.numeric(fact_sites)
+  
+  # Make individual labels as site-number for each individual
+  qlist_aligned[[1]] <- qlist_aligned[[1]] %>%
+    dplyr::mutate(
+      char_sites = as.character(fact_sites)
+    ) %>%
+    group_by(char_sites) %>% 
+    dplyr::mutate(count = row_number(char_sites)) %>%
+    ungroup() %>%
+    dplyr::mutate(
+      count = str_pad(count, width = 2, pad = "0", side = "left"),
+      row_ID = paste(char_sites, count, sep = "-")
+    ) %>%
+    as.data.frame()
+  
+  # Update rownames with the new column
+  rownames(qlist_aligned[[1]]) <- qlist_aligned[[1]]$row_ID
+  
+  # Do the sorting
+  ord <- order(qlist_aligned[[1]]$regions, qlist_aligned[[1]]$sites, decreasing = FALSE)
+  qlist_aligned[[1]] <- qlist_aligned[[1]][ord, ]
+  # head(qlist_aligned[[1]])
+  
+  # Get rid of the region and site columns after sorting
+  qlist_aligned[[1]] <- qlist_aligned[[1]][, -grep("region|site|char_sites|count|row_ID", names(qlist_aligned[[1]]))]
+  # head(qlist_aligned[[1]])
+
+  # qlist_aligned[[1]]
+
+  # Which samples have membership greater than 0.1 but less than 0.5 to Cluster 1?
+  # Matches what I was seeing above, same CNCT individual for instance
+  # qlist_aligned[[1]] %>%
+    # filter(Cluster1 >= 0.1 & Cluster1 <= 0.5)
+
+  # qlist_aligned[[1]] %>%
+    # filter(Cluster1 >= 0.5)
+
+  # From pophelper: One or more sets of group labels can be added to the bottom of barplots by providing a ‘data.frame’ object. The number of rows of the ‘data.frame’ must be equal to the number of individuals. The header of the ‘data.frame’ is the group label set title.
+
+  # Convert back to qlist attributes
+  qlist_aligned <- as.qlist(qlist_aligned)
+  # str(qlist_aligned)
+  
+  return(qlist_aligned[[1]])
+  
+}))
+
+str(qdf_list)
+
+# Get qlist attributes back
+qdf_list <- as.qlist(qdf_list)
+str(qdf_list)
+  
+# Custom strip panel label showing k only
+fn1 <- function(x) attr(x, "k")
+spnames <- paste0("K = ", sapply(qdf_list, fn1))
+
+# Region label, order this
+lab_df <- data.frame(Region = regions) %>%
+  dplyr::mutate(
+    # Make region labels more general
+    Region = gsub("Southern\n Argentina|Northern\n Argentina", "Argentina", Region),
+    Region = gsub("South-Central\n Uruguay|Southwestern\n Uruguay", "Uruguay", Region),
+    Region = gsub("Southern\n United States|Northern\n United States", "United States", Region),
+    Region = factor(Region, levels = c("Argentina", "Uruguay", "Spain", "United States")),
+    Site = factor(sites, levels = all_sites)
+  ) %>%
+  arrange(-desc(Region), -desc(Site)) %>%
+  dplyr::mutate(
+    Region = as.character(Region)
+  ) %>%
+  dplyr::select(-c(Site))
+glimpse(lab_df)
+lab_df
+
+names(lab_df) <- " "
+
+# When using all 10 K
+# cols <- c("firebrick", "maroon", "royalblue", "gold2", "grey35", "coral", "slateblue1", "orangered", "black", "wheat")
+
+# K of 2 to 5
+cols <- c("firebrick", "royalblue", "gold2", "grey35", "coral")
+
+# K of 6 - 10 don't provide much more information
+# alignK aligns colors for clusters, at least for the first few K
+
+# With individual labels
+p <- plotQ(alignK(qdf_list[c(1:4)]), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 11, grplab = lab_df, grplabsize = 3, grplabcol = "black", grplabface = "bold", linesize = 27, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 2), clustercol = cols, splab = spnames[c(1:4)], spbgcol = "grey85", splabsize = 12, splabface = "bold", showindlab = TRUE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = TRUE, legendkeysize = 10, legendtextsize = 10, legendrow = 1, legendlab = as.character(seq(1, 5, 1)))
+grid.arrange(p$plot[[1]])
+
+rownames(qdf_list[1])
+
+# With individual labels, leaving space for annotation in Libre Office
+p <- plotQ(alignK(qdf_list[c(1:4)]), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 12, grplab = lab_df, grplabsize = 6, grplabcol = "black", grplabface = "bold", linesize = 10, grplabspacer = 0, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 1), clustercol = cols, splab = spnames[c(1:4)], spbgcol = "grey85", splabcol = "black", splabsize = 12, splabface = "bold", showindlab = FALSE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = TRUE, legendkeysize = 4, legendtextsize = 12, legendrow = 1, legendlab = as.character(seq(1, 5, 1)))
+dev.off()
+  
+# Write out image file
+tiff(file.path(gpath, "Structure_K2toK5.tiff"), units = "in", width = 8.5, height = 6, res = 600)
+grid.arrange(p$plot[[1]])
+dev.off()
+
+# Write out image file
+# Doesn't work as expected
+# plotQ(alignK(qdf_list[c(1:4)]), returnplot = FALSE, exportplot = TRUE, quiet = TRUE, basesize = 11, grplab = lab_df, grplabsize = 4, grplabcol = "black", grplabface = "bold", linesize = 27, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.75, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 2), clustercol = cols, splab = spnames[c(1:4)], spbgcol = "grey85", splabsize = 12, splabface = "bold", showindlab = TRUE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = 0.5, indlabhjust = 0, indlabsize = 8, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = TRUE, legendkeysize = 10, legendtextsize = 10, legendrow = 1, legendlab = as.character(seq(1, 5, 1)), exportpath = gpath, imgtype = "tiff", outputfilename = "Structure_K2toK5.tiff", dpi = 600)
+
+
+```
+
+To do:
+
+- Add this to LibreOffice and add sampling site labels by hand.
+
+
+I tried running pophelper with the CLUMPP output from Discovery, but it didn't recognize the indq file for K2.
+```{r echo = TRUE, eval = TRUE}
+
+# From Discovery runs
+# # Read aligned K2 population file
+# aligned <- readQ(file.path(file.path(path, "CLUMPP_results"), "K2.popq"), filetype = "clumpp")
+# str(aligned)
+# 
+# # Read aligned K2 individual file
+# aligned <- readQ(file.path(file.path(path, "CLUMPP_results"), "K2.indq"), filetype = "clumpp")
+# str(aligned)
+
+```

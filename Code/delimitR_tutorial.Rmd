@@ -195,7 +195,7 @@ ReducedPrior <- Prior_reduced(FullPrior)
 
 Next, build a random forests classifier that uses the bSFS (binned SFS) bins as predictors, and the model used for data simulation is the response. the abcrf package is used here. The number of trees can be supplied by the user. 
 
-Each decision tree in the forest uses a subset of the prior (still not sure what this means), and each node considers a bin of the bSFS (does this mean mtry is set to 1?). Thena binary decision rule is made based on the number of SNPs per bin. Observed data can be used as a prediction dataset that is run down the trained RF classifier, and the each decision tree votes for a demographic model. Since this is an RF classifier, the model with the greatest number of votes (leaves in the forest) wins.
+Each decision tree in the forest uses a subset of the prior (still not sure what this means), and each node considers a bin of the bSFS (does this mean mtry is set to 1?). Then a binary decision rule is made based on the number of SNPs per bin. Observed data can be used as a prediction dataset that is run down the trained RF classifier, and the each decision tree votes for a demographic model. Since this is an RF classifier, the model with the greatest number of votes (leaves in the forest) wins.
 ```{r echo = TRUE, eval = TRUE}
 
 myRF <- RF_build_abcrf(ReducedPrior, FullPrior, 500)
@@ -218,8 +218,9 @@ myobserved <- prepobserved(
   ReducedPrior,
   nclasses,
   obsspecies,
-  traitsfile=traitsfile,
-  threshold = 100)
+  traitsfile = traitsfile,
+  threshold = 100
+)
 
 ```
 

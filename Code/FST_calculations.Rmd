@@ -18,7 +18,7 @@ rm(list = ls())
 
 # install.packages("BEDASSLE")
 
-X <- c("tidyverse", "pbapply", "data.table", "adegenet", "BEDASSLE", "mclust", "MASS")
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "BEDASSLE", "mclust", "MASS", "openxlsx")
 invisible(lapply(X, library, character.only = TRUE))
 
 map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
