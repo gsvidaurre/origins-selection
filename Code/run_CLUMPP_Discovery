@@ -1,0 +1,35 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 06 October 2020
+## Updated 06 October 2020
+
+## Purpose: Run CLUMPP over K2 to K26 with Structure Harvester output files for the merged pre-processed neutral SNPs. CLUMPP will be run per K 10 times, per indfile and popfile. The reason why CLUMPP is run is to merge cluster membership coefficients across replicates run per K in Structure.
+
+#SBATCH --job-name clumpp
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 3000M
+#SBATCH --time 7-00:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load clumpp
+
+src=/scratch/gsmithvi/CLUMPP_results
+
+# Iterate over K, run CLUMPP twice per K value (to produce .popq and .indq)
+for K in `seq 2 26`;
+        do
+	
+	# indfile
+        CLUMPP $src/CLUMPP_paramfile_inds -K $K -i $src/K"$K".indfile -p $src/K"$K".popfile -o $src/K"$K".indq -j $src/K"$K".indmiscfile
+	
+	# popfile
+	CLUMPP $src/CLUMPP_paramfile_pops -K $K -i $src/K"$K".indfile -p $src/K"$K".popfile -o $src/K"$K".popq -j $src/K"$K".popmiscfile
+done
+

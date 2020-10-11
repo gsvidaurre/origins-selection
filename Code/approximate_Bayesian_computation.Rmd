@@ -117,34 +117,68 @@ samps_ABC_df <- samps_df %>%
   dplyr::mutate(
     ABC_pop = region,
     ABC_pop = recode(ABC_pop,
-      `Southwestern Uruguay` = "pop1",
-      `South Central Uruguay` = "pop1",
-      `Spain` = "pop2",
-      `Northern United States` = "pop2",
-      `Southern United States` = "pop2",
-      `Northern Argentina` = "pop3"
+      `Southwestern Uruguay` = "pop0",
+      `South Central Uruguay` = "pop0",
+      `Spain` = "pop1",
+      `Northern United States` = "pop1",
+      `Southern United States` = "pop1",
+      `Northern Argentina` = "pop2"
     )
   )
 glimpse(samps_ABC_df)
 
-# Randomly select 10 birds per region of URY to make models less unbalaned (oterwise 14 NAR and 45 URY individuals per model)
+# Randomly select 7 birds per region of URY to make models less unbalanced (otherwise 14 NAR and 14 URY individuals per model)
+set.seed(seed)
 samps_ABC_df <- samps_ABC_df %>%
   filter(grepl("Uruguay", region)) %>%
   group_by(region) %>%
   nest() %>%
   ungroup() %>%
   dplyr::mutate(
-    rsamp = map2(data, 10, sample_n, replace = FALSE)
+    rsamp = map2(data, 7, sample_n, replace = FALSE)
   ) %>%
   select(-data) %>%
   unnest(rsamp) %>%
+ # Randomly select 14 birds per FLOR and CNCT
   bind_rows(
     samps_ABC_df %>%
-    filter(!grepl("Uruguay", region))
+      filter(grepl("CNCT", site)) %>%
+      group_by(site) %>%
+      nest() %>%
+      ungroup() %>%
+      dplyr::mutate(
+        rsamp = map2(data, 14, sample_n, replace = FALSE)
+      ) %>%
+      select(-data) %>%
+      unnest(rsamp)
+  ) %>%
+  bind_rows(
+    samps_ABC_df %>%
+      filter(grepl("FLOR", site)) %>%
+      group_by(site) %>%
+      nest() %>%
+      ungroup() %>%
+      dplyr::mutate(
+        rsamp = map2(data, 14, sample_n, replace = FALSE)
+      ) %>%
+      select(-data) %>%
+      unnest(rsamp)
+  ) %>%
+  # Add back all other samples (not URY, FLOR, CNCT)
+  bind_rows(
+    samps_ABC_df %>%
+    filter(!grepl("Uruguay", region) & !grepl("CNCT", site) & !grepl("FLOR", site))
   )
 
 # glimpse(samps_ABC_df)
 # View(samps_ABC_df)
+
+# Looks good
+samps_ABC_df %>%
+  group_by(region, site) %>%
+  dplyr::summarise(
+    n_indivs = length(indiv)
+  )
 
 ```
 
@@ -221,16 +255,6 @@ invisible(pblapply(1:length(sites), function(x){
 
 # Opened these files in Vim to doublecheck structure, looks good
 
-# BARC: 39 individuals total
-# CNCT: 61 individuals total
-# FLOR: 63 individuals total
-# GRCA: 40 individuals total
-# ILLI: 42 individuals total
-# MADR: 39 individuals total
-# MALL: 41 individuals total
-# WASH: 38 individuals total
-# ZARA: 38 individuals total
-
 ```
 
 The whitelist of the 320 neutral loci made in "FST_calculations.Rmd" will be used to retain these neutral loci for each VCF file. 
@@ -270,10 +294,14 @@ invisible(pblapply(1:nrow(pop_map), function(x){
   # Initialize file name
   tmp_nm <- file.path(tmp_path, "traits.txt")
 
+  # Add two lines per individual, each represents an allele
   if(x != nrow(pop_map)){
-    cat(paste(pop_map[x, 1], pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+    cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+    cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+  # Very last individual should not have a new line added after the second allele
   } else {
-    cat(paste(pop_map[x, 1], pop_map[x, 2], collapse = "\t"), file = tmp_nm, sep = "", append = TRUE)
+    cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+    cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), file = tmp_nm, sep = "", append = TRUE)
   }
 
 }))
@@ -339,8 +367,8 @@ class(barc_RF)
 ReducedPrior <- readRDS(file.path(tmp_path, "ReducedPrior.RDS"))
 str(ReducedPrior)
 
-# 180k simulations...why? I thought I did 10k simulations per model, so there should be 60k. Why are there 3x more?
-# The OOB error rate is 0%, suspiciously perfect 
+# 60k simulations...looks good
+# Low OOB error rates but also not all 0%, also looks good
 barc_RF
 
 # A plot of the reference table on LDA axes, in other words, separation of te simulated data by model in lower dimensional space, the reference table is used in model choice
@@ -348,24 +376,75 @@ plot(barc_RF, training = ReducedPrior)
 
 # Run the observed BARC mSFS down the trained model
 # Get the observed data into the correct format
-observedSFS <- file.path(tmp_path, "BARC_model_MSFS")
+observedSFS <- file.path(tmp_path, "BARC_MSFS")
 traits <- file.path(tmp_path, traitsfile)
 
-# From earlier in delimitR tutorial: The user must also provide a vector of sample sizes. Again, this must be compatible with the traits file and the observed SFS. The sample sizes should be specified in order from population 0 to population n-1. These should be the numbers AFTER downsampling.
+# From earlier in delimitR tutorial: The user must also provide a vector of sample sizes. Again, this must be compatible with the traits file and the observed SFS. The sample sizes should be specified in order from population 0 to population n-1. These should be the numbers AFTER downsampling....earlly? wasn't it before downsampling
 
 # How did downsampling of the mSFS change sample sizes? I may have made the prior with the wrong threshold
 # The observed mSFS has 3 demes, then 36, 10, 24, corresponding to 18, 5, and 12 samples
-# Looks like I should probably rerun BARC fsc26 simulations with these sample sizes, and then redo priors, model training
+# But I wan BARC fsc26 simulations with original sample sizes, which should be fine
 # Also keep in mind that prior to training, really should make classifiers to hoptimhize bins
+
+# (36 + 10 + 24)/(40 + 10 + 28) # doesn't work as threshold
+
 barc_observed <- prepobserved(
-  observedSFS,
-  FullPrior,
-  ReducedPrior,
-  nClasses,
-  obsspecies,
+  observed = observedSFS,
+  FullPrior = FullPrior,
+  ReducedPrior = ReducedPrior,
+  nclasses = nClasses,
+  npops = obsspecies,
   traitsfile = traits,
   threshold = 100
 )
+
+# threshold: The percentage of individuals used to build the mSFS. This is relevant if you used a downsampling approach to build the mSFS from the observed data, but used the original number of individuals for generating models in delimitR.
+
+# 09 October 2020: Found this in the file /home/owner/R/i686-pc-linux-gnu-library/3.6/delimitR/SFS_CreateBinned_3pops.py
+
+# if len(values) != len(self):
+        # FIXME: correct error to raise?
+        # raise ValueError('Value list is not the same length as the '
+            # 'OrderedDict.')
+    # self.update(zip(self, values))
+
+# Full error:
+# Traceback (most recent call last):
+#   File "/home/owner/R/i686-pc-linux-gnu-library/3.6/delimitR/SFS_CreateBinned_3pops.py", line 334, in <module>
+#     Populate_AFS(file)
+#   File "/home/owner/R/i686-pc-linux-gnu-library/3.6/delimitR/SFS_CreateBinned_3pops.py", line 326, in Populate_AFS
+#     setvalues(Full_AFS,line)
+#   File "/home/owner/R/i686-pc-linux-gnu-library/3.6/delimitR/SFS_CreateBinned_3pops.py", line 31, in setvalues
+#     raise ValueError('Value list is not the same length as the '
+# ValueError: Value list is not the same length as the OrderedDict.
+# Error in file(file, "rt") : cannot open the connection
+# In addition: Warning message:
+# In file(file, "rt") :
+#   cannot open file '/media/owner/MYIOPSITTA/R/Origins_Selection/ABC/ABC_BARC/BARC_MSFS_binned.obs': No such file or directory
+
+# Wow when I commented out the lines in the Python script, I no longer got that error
+
+# Running BARC prediction 09 Oct 2020
+barc_prediction <- RF_predict_abcrf(barc_RF, barc_observed, ReducedPrior, FullPrior, 500)
+barc_prediction
+
+     # selected model votes model1 votes model2 votes model3 votes model4
+# 1 BARC_model_1_MSFS          116           95           88           89
+  # votes model5 votes model6 post.proba
+# 1           61           51  0.9792167
+
+# Wow Model 1 selected: URY origin, shorter bottleneck!! 
+
+summary(barc_prediction)
+
+# Number of affectations per model:
+# BARC_model_1_MSFS BARC_model_2_MSFS BARC_model_3_MSFS BARC_model_4_MSFS 
+                # 1                 0                 0                 0 
+# BARC_model_5_MSFS BARC_model_6_MSFS 
+                # 0                 0 
+
+# post.proba = ABC-RF approximations of the posterior probability of the selected model for each observed dataset.
+# Note that Model 2 got the second number of highest votes
 
 ```
 

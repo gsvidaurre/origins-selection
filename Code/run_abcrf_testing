@@ -1,0 +1,24 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 08 October 2020
+## Updated 08 October 2020
+
+## Purpose: Run the script abcrf_testing.R. I want to be able to run abcrf model training with simulated data per population on Discovery.
+
+#SBATCH --job-name abcrf_test
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 3000M
+#SBATCH --time 7-00:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load r-abcrf
+
+
+R CMD BATCH /scratch/gsmithvi/scripts/abcrf_testing.R &> /scratch/gsmithvi/scripts/abcrf_testing.log

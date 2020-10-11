@@ -1,0 +1,146 @@
+#!/bin/bash
+## G.Smith-Vidaurre
+## 03 October 2020
+## Updated 06 October 2020
+
+## Purpose: Run fastsimcoal2 over demographic models per invasive range population to get simulated data for ABC modelling. 
+
+#SBATCH --job-name ABC_sims
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 2000M # default is 500M
+#SBATCH --time 7-00:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load fastsimcoal2
+
+# Need to iterate over models per invasive population
+
+# BARC
+
+cd /scratch/gsmithvi/ABC/ABC_BARC # Change working directory for the run below
+path=/scratch/gsmithvi/ABC/ABC_BARC
+prefix=BARC_model
+logfile=$path/BARC_fsc26_log.oe
+
+# -E is the number of draws from parameter priors, -n is the number of simulations to perform per set of parameters drawn. Megan Smith suggests a minimum of 10k draws, and set n to 1, here I will set n to 1 as well
+# --msfs: computes the SFS for the minor allele in each population sample, for all pairs of samples (join SFS), and for all populations pooled (global SFS), SNPs only
+# -q: silences messages to console
+# --multiSFS: generate or use multidimensional SFS
+# -x: do not generate Arlequin output files
+# -0: do no consider number of monomorphic sites
+for i in `seq 1 6`;
+	do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# CNCT
+
+cd /scratch/gsmithvi/ABC/ABC_CNCT
+path=/scratch/gsmithvi/ABC/ABC_CNCT
+prefix=CNCT_model
+logfile=$path/CNCT_fsc26_log.oe
+
+for i in `seq 1 6`;
+         do
+ 	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+ done
+
+
+# FLOR
+
+cd /scratch/gsmithvi/ABC/ABC_FLOR
+path=/scratch/gsmithvi/ABC/ABC_FLOR
+prefix=FLOR_model
+logfile=$path/FLOR_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# GRCA
+
+cd /scratch/gsmithvi/ABC/ABC_GRCA
+path=/scratch/gsmithvi/ABC/ABC_GRCA
+prefix=GRCA_model
+logfile=$path/GRCA_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# ILLI
+
+cd /scratch/gsmithvi/ABC/ABC_ILLI
+path=/scratch/gsmithvi/ABC/ABC_ILLI
+prefix=ILLI_model
+logfile=$path/ILLI_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# MADR
+
+cd /scratch/gsmithvi/ABC/ABC_MADR
+path=/scratch/gsmithvi/ABC/ABC_MADR
+prefix=MADR_model
+logfile=$path/MADR_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# MALL
+
+cd /scratch/gsmithvi/ABC/ABC_MALL
+path=/scratch/gsmithvi/ABC/ABC_MALL
+prefix=MALL_model
+logfile=$path/MALL_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# WASH
+
+cd /scratch/gsmithvi/ABC/ABC_WASH
+path=/scratch/gsmithvi/ABC/ABC_WASH
+prefix=WASH_model
+logfile=$path/WASH_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
+
+# ZARA
+
+cd /scratch/gsmithvi/ABC/ABC_ZARA
+path=/scratch/gsmithvi/ABC/ABC_ZARA
+prefix=ZARA_model
+logfile=$path/ZARA_fsc26_log.oe
+
+for i in `seq 1 6`;
+        do
+	fsc26 -t $path/$prefix"_$i".tpl -e $path/$prefix"_$i".est -q -n 1 -E 10000 --msfs --multiSFS -x &> $logfile;
+done
+
