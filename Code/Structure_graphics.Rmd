@@ -64,6 +64,8 @@ neutral_snps@pop
 
 ```
 
+# Neutral SNPs (320)
+
 Evanno method to evaluate "best" K.
 ```{r echo = TRUE, eval = TRUE}
 
@@ -138,6 +140,8 @@ dimnames(neutral_snps@tab)[[1]][c(8, 17, 18, 19, 75, 79, 83, 84, 88, 90, 126, 10
 
 Get metadata for sorting individuals in these barplots by region and sampling site.
 ```{r echo = TRUE, eval = TRUE}
+
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure"
 
 # Get sampling sites
 sites <- sapply(1:nrow(neutral_snps@tab), function(i){
@@ -278,12 +282,12 @@ grid.arrange(p$plot[[1]])
 
 rownames(qdf_list[1])
 
-# With individual labels, leaving space for annotation in Libre Office
+# With individual labels
 p <- plotQ(alignK(qdf_list[c(1:4)]), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 12, grplab = lab_df, grplabsize = 6, grplabcol = "black", grplabface = "bold", linesize = 10, grplabspacer = 0, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 1), clustercol = cols, splab = spnames[c(1:4)], spbgcol = "grey85", splabcol = "black", splabsize = 12, splabface = "bold", showindlab = FALSE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = TRUE, legendkeysize = 4, legendtextsize = 12, legendrow = 1, legendlab = as.character(seq(1, 5, 1)))
 dev.off()
   
-# Write out image file
-tiff(file.path(gpath, "Structure_K2toK5.tiff"), units = "in", width = 8.5, height = 6, res = 600)
+# Write out image file, need to put a white box over the 6 in legend, the function fails when trying to use 2-5 for legend labels
+tiff(file.path(gpath, "Structure_neutral_K2toK5.tiff"), units = "in", width = 8.5, height = 6, res = 600)
 grid.arrange(p$plot[[1]])
 dev.off()
 
@@ -312,3 +316,272 @@ I tried running pophelper with the CLUMPP output from Discovery, but it didn't r
 # str(aligned)
 
 ```
+
+
+# Outlier SNPs (241)
+
+Read in Structure file for the 241 outlier SNPs. Here, ran only K 1 through 10.
+```{r echo = TRUE, eval = TRUE}
+
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups_outlierSNPs.str"
+
+outlier_snps <- read.structure(file.path(file.path(res_path, "merged"), file_nm), n.ind = 173, n.loc = 241, col.lab = 1, col.pop = 2, row.marknames = 1, onerowperind = FALSE, ask = FALSE, NA.char = "-9")
+str(outlier_snps)
+
+str(outlier_snps@tab)
+
+# Populations are numbered consecutively by sampling site, but individuals are not ordered by populations
+outlier_snps@pop
+
+```
+
+Evanno method to evaluate "best" K.
+```{r echo = TRUE, eval = TRUE}
+
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure_outliers"
+
+# Choose runs
+struc_files <- list.files(path = path, pattern = "merged_outlierSNPs_K", full.names = TRUE)
+head(struc_files)
+
+# Read in Structure results files
+# One element per iteration of K in the resulting list
+qlist <- readQ(struc_files, filetype = "structure")
+str(qlist)
+names(qlist)
+
+# Tabulate runs, yields a data frame with one row per K and replicate
+# For STRUCTURE runs, the tabulateQ() function produces additional columns namely number of loci, number of burn-ins, number of replicates (reps), estimated ln probability of data (elpd), mean value of ln likelihood (mvll) and variance of ln likelihood (vll). The table is sorted by loci, ind and K.
+df1 <- tabulateQ(qlist)
+glimpse(df1)
+
+# Summarise runs, summarises over replicates of K, yields one row per K
+df2 <- summariseQ(df1)
+glimpse(df2)
+
+# Find "best" K with Evanno method 
+# elpdmean is mean estimated Ln probability...not NA for K1, so could be used to assess likelihood of K 1 versus K 2
+sum_stats <- evannoMethodStructure(data = df2, exportplot = FALSE, returnplot = FALSE)
+glimpse(sum_stats)
+
+# Couldn't get the plot above to work, so using my own
+sum_stats %>%
+  # Drop k = 1 and 10, naturally have NAs in the delta calculation
+  filter(!is.na(deltaK)) %>%
+  ggplot(aes(x = k, y = deltaK)) +
+  geom_line() +
+  geom_point(shape = 21, size = 3, fill = "grey65") +
+  xlab("K") +
+  ylab("Delta K") +
+  scale_x_continuous(limits = c(2, 9), breaks = seq(2, 9, 1), labels = seq(2, 9, 1)) +
+  scale_y_continuous(limits = c(0, 600), breaks = seq(0, 600, 50), labels = seq(0, 600, 50)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(file.path(gpath, "DeltaK_241outlierSNPs.jpeg"), units = "in", width = 5, height = 4)
+
+
+# Now, estimated ln probability of data (elpd)
+sum_stats %>%
+  ggplot(aes(x = k, y = elpdmean)) +
+  geom_line() +
+  geom_point(shape = 21, size = 3, fill = "grey65") +
+  xlab("K") +
+  ylab("Mean estimated Ln probability") +
+  scale_x_continuous(limits = c(1, 10), breaks = seq(1, 10, 1), labels = seq(1, 10, 1)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(file.path(gpath, "LnProb_241outlierSNPs.jpeg"), units = "in", width = 5, height = 4)
+
+```
+
+Get metadata for sorting individuals in CLUMPP runs to make barplots by region and sampling site.
+```{r echo = TRUE, eval = TRUE}
+
+# Get sampling sites
+sites <- sapply(1:nrow(outlier_snps@tab), function(i){
+  meta_dats$Site_Code[grep(paste("^", dimnames(outlier_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(sites)
+unique(sites)
+
+# Get sampling regions
+regions <- sapply(1:nrow(outlier_snps@tab), function(i){
+  meta_dats$Region[grep(paste("^", dimnames(outlier_snps@tab)[[1]][i], "$", sep = ""), meta_dats$Sample_Name)]
+})
+head(regions)
+
+# Update labels in plot
+regions <- gsub("South Central Uruguay", "South-Central\n Uruguay", regions)
+regions <- gsub("ern ", "ern\n ", regions)
+
+unique(regions)
+
+all_regs <- c("Southern\n Argentina", "Northern\n Argentina", "South-Central\n Uruguay", "Southwestern\n Uruguay", "Spain", "Southern\n United States", "Northern\n United States")
+
+fact_regions <- factor(regions, levels = all_regs)
+
+# Same order as in Structure file (taken from BayeScan_post-processing.Rmd)
+all_sites <- c("CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "1135", "1145", "BAGU", "BCAR", "PEIX", "ALGA", "BAIR", "LURO", "BAZO", "ERIO", "BARC", "MADR", "MALL", "SEVI", "ZARA", "GRCA", "FLOR", "ILLI", "WASH", "CNCT")
+
+fact_sites <- factor(sites, levels = all_sites)
+
+```
+
+Use pophelper to summarize across replicates to make CLUMPP input. Note that I did this for the neutral SNPs too but I think I foolishly deleted that code. Results in subdirectories inside the path called "pop_K*".
+```{r echo = TRUE, eval = FALSE}
+
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure_outliers"
+
+# Set working directory again since the function below doesn't take a path
+setwd(path)
+# getwd()
+
+# Read in Structure K replicates as a qlist
+outlier_files <- list.files(path, pattern = "merged_outlierSNPs_K", full.names = TRUE)
+str(outlier_files)
+
+outlier_qlist <- readQ(outlier_files)
+str(outlier_qlist)
+
+# Use this function to export files to be used for a CLUMPP run on my local machine
+# Used 2 for neutral runs as well, and 20 iterations
+clumppExport(qlist = outlier_qlist, prefix = "pop", parammode = 2,
+paramrep = 20)
+
+```
+
+After making these new directories with CLUMPP input files, I updated the script "run_CLUMPP" and ran this for outlier loci on my local machine. All the output files get saved to tje directory where the code is saved, despite setting the working directory, so I had to move these into the right folder for making graphics (see below).
+
+Looped over K = 2 to K = 10 to read in CLUMPP results and make Structure raphics across iterations per K. 
+```{r echo = TRUE, eval = TRUE}
+
+# Made the nested folders CLUMPP_results/clumpp_pophelper inside the directory below
+
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure_outliers"
+
+Ks <- seq(2, 9, 1) # Read files up to K9 as K10 still running in CLUMPP
+
+# k <- 1
+qdf_list <- invisible(pblapply(1:length(Ks), function(k){
+  
+  # From the pophelper CLUMPP runs on my local machine
+  qlist_aligned <- readQ(file.path(file.path(path, "CLUMPP_results/clumpp_pophelper"), paste("pop_K", Ks[k], "-combined-merged.txt", sep = "")), filetype = "clumpp")
+  # str(qlist_aligned)
+
+  # Sorting individuals by region and site
+  qlist_aligned[[1]]$regions <- as.numeric(fact_regions)
+  qlist_aligned[[1]]$sites <- as.numeric(fact_sites)
+  
+  # Make individual labels as site-number for each individual
+  qlist_aligned[[1]] <- qlist_aligned[[1]] %>%
+    dplyr::mutate(
+      char_sites = as.character(fact_sites)
+    ) %>%
+    group_by(char_sites) %>% 
+    dplyr::mutate(count = row_number(char_sites)) %>%
+    ungroup() %>%
+    dplyr::mutate(
+      count = str_pad(count, width = 2, pad = "0", side = "left"),
+      row_ID = paste(char_sites, count, sep = "-")
+    ) %>%
+    as.data.frame()
+  
+  # Update rownames with the new column
+  rownames(qlist_aligned[[1]]) <- qlist_aligned[[1]]$row_ID
+  
+  # Do the sorting
+  ord <- order(qlist_aligned[[1]]$regions, qlist_aligned[[1]]$sites, decreasing = FALSE)
+  qlist_aligned[[1]] <- qlist_aligned[[1]][ord, ]
+  # head(qlist_aligned[[1]])
+  
+  # Get rid of the region and site columns after sorting
+  qlist_aligned[[1]] <- qlist_aligned[[1]][, -grep("region|site|char_sites|count|row_ID", names(qlist_aligned[[1]]))]
+  # head(qlist_aligned[[1]])
+
+  # qlist_aligned[[1]]
+
+  # Which samples have membership greater than 0.1 but less than 0.5 to Cluster 1?
+  # Matches what I was seeing above, same CNCT individual for instance
+  # qlist_aligned[[1]] %>%
+    # filter(Cluster1 >= 0.1 & Cluster1 <= 0.5)
+
+  # qlist_aligned[[1]] %>%
+    # filter(Cluster1 >= 0.5)
+
+  # From pophelper: One or more sets of group labels can be added to the bottom of barplots by providing a ‘data.frame’ object. The number of rows of the ‘data.frame’ must be equal to the number of individuals. The header of the ‘data.frame’ is the group label set title.
+
+  # Convert back to qlist attributes
+  qlist_aligned <- as.qlist(qlist_aligned)
+  # str(qlist_aligned)
+  
+  return(qlist_aligned[[1]])
+  
+}))
+
+str(qdf_list)
+
+# Get qlist attributes back
+qdf_list <- as.qlist(qdf_list)
+str(qdf_list)
+  
+# Custom strip panel label showing k only
+fn1 <- function(x) attr(x, "k")
+spnames <- paste0("K = ", sapply(qdf_list, fn1))
+
+# Region label, order this
+lab_df <- data.frame(Region = regions) %>%
+  dplyr::mutate(
+    # Make region labels more general
+    Region = gsub("Southern\n Argentina|Northern\n Argentina", "Argentina", Region),
+    Region = gsub("South-Central\n Uruguay|Southwestern\n Uruguay", "Uruguay", Region),
+    Region = gsub("Southern\n United States|Northern\n United States", "United States", Region),
+    Region = factor(Region, levels = c("Argentina", "Uruguay", "Spain", "United States")),
+    Site = factor(sites, levels = all_sites)
+  ) %>%
+  arrange(-desc(Region), -desc(Site)) %>%
+  dplyr::mutate(
+    Region = as.character(Region)
+  ) %>%
+  dplyr::select(-c(Site))
+glimpse(lab_df)
+lab_df
+
+names(lab_df) <- " "
+
+length(Ks)
+
+# When using all 10 K
+# cols <- c("firebrick", "royalblue", "gold2", "grey35", "wheat", "coral", "slateblue1", "orangered", "black", "maroon")
+
+# K of 2 to 5
+cols <- c("royalblue", "firebrick", "gold2", "grey35", "coral")
+
+# K of 6 and beyond don't provide much more information
+# alignK aligns colors for clusters, at least for the first few K
+
+# With individual labels, K 2 - 9, no legend
+# p <- plotQ(alignK(qdf_list[c(1:8)]), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 12, grplab = lab_df, grplabsize = 6, grplabcol = "black", grplabface = "bold", linesize = 10, grplabspacer = 0, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 1), clustercol = cols, splab = spnames[c(1:8)], spbgcol = "grey85", splabcol = "black", splabsize = 12, splabface = "bold", showindlab = FALSE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = FALSE)
+# grid.arrange(p$plot[[1]])
+# 
+# rownames(qdf_list[1])
+
+# With individual labels
+p <- plotQ(alignK(qdf_list[c(1:4)]), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 12, grplab = lab_df, grplabsize = 6, grplabcol = "black", grplabface = "bold", linesize = 10, grplabspacer = 0, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 1), clustercol = cols, splab = spnames[c(1:4)], spbgcol = "grey85", splabcol = "black", splabsize = 12, splabface = "bold", showindlab = FALSE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = TRUE, legendkeysize = 4, legendtextsize = 12, legendrow = 1, legendlab = as.character(seq(1, 5, 1)))
+dev.off()
+  
+# Write out image file
+tiff(file.path(gpath, "Structure_outliers_K2toK5.tiff"), units = "in", width = 8.5, height = 6, res = 600)
+grid.arrange(p$plot[[1]])
+dev.off()
+
+```
+
+Some interesting patterns here that are different to the neutral loci. K of 6 and beyond don't provide new information. 

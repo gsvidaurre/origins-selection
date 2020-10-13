@@ -1,13 +1,16 @@
 #!/bin/bash
 # G. Smith-Vidaurre
 # 05 October 2020
+# Updated 12 October 2020
 
-# Purpose: Run CLUMPP on local machine to combine Structure replicates per K and order clusters. CLUMPP input files and paramfiles generated using pophelper package in "Structure_graphics.Rmd".
+# Purpose: Run CLUMPP on local machine to combine Structure replicates per K and order clusters. CLUMPP input files and paramfiles generated using pophelper package in "Structure_graphics.Rmd". Ran this for both neutral and outlier Structure runs.
 
 src=/home/owner/Desktop/Software/CLUMPP_Linux32.1.1.2
-path=/media/owner/MYIOPSITTA/R/Origins_Selection/Structure
+# path=/media/owner/MYIOPSITTA/R/Origins_Selection/Structure # neutral SNPs
+path=/media/owner/MYIOPSITTA/R/Origins_Selection/Structure_outliers # outlier SNPs
 
-for i in `seq 2 26`; 
+# for i in `seq 2 26`; # neutral SNPs
+for i in `seq 2 10`; # outlier SNPs
 	do
 	tmp_path=$path/pop_K"$i";
 	# echo $tmp_path;
