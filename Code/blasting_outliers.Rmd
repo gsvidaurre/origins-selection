@@ -1,0 +1,375 @@
+---
+title: "BLASTing outliers"
+author: "Grace Smith-Vidaurre"
+date: "October 15, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate. Also installed the package radiator to convert between genind object and VCF format, needed to use Python code in another GitHub repo to get observed SFS data.
+
+Here, 6 models will be run per invasive population with sufficient samples: Uruguay (URY) origin, Northern Argentina (NAR) origin, admixed origin, and these same 3 models but with a longer bottleneck time that goes to the present. 
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "XML")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+# Path where BLAST files will be read and written
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BLAST"
+ 
+# Path where population maps written
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+seed <- 401
+cores <- parallel::detectCores() - 2
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Read in the XML file from blastn to the budgie genome.
+```{r echo = TRUE, eval = TRUE}
+
+# Read in the XML as an XML
+xml_res <- xmlParse(file.path(path, "outlier_RADtags_blastn2Meund.xml"))
+
+# Convert to a list
+blastn_res <- xmlToList(xml_res)
+glimpse(blastn_res)
+length(blastn_res)
+
+blastn_res[[8]] # Parameters used in the call to blastn
+blastn_res[[9]] # The last element contains the list of hits
+length(blastn_res[[9]]) # One list per outlier locus
+str(blastn_res[[9]][[1]])
+length(blastn_res[[9]][[1]])
+
+# Iterate over the list of hits and write out results of interest to a data frame
+# In doing so, assess the list of multiple hits per outlier locus, and only retain multiple hits if e-values are less than an order of magnitude from the top hit
+hit_list <- blastn_res[[9]]
+
+# Do any loci have more than one hit? I think they all have one hit, as expected given the way I parameterized the blastn
+sapply(blastn_res[[9]], function(X){
+  length(X$`Iteration_hits`)
+})
+
+i <- 1
+blastn_df <- rbindlist(pblapply(1:length(hit_list), function(i){
+  
+  # cat(paste("i = ", i, "\n"))
+  
+  tmp_list <- hit_list[[i]]
+  # str(tmp_list)
+  # names(tmp_list)
+  
+  # FASTA header for the outlier locus
+  outlier_fasta_headr <- tmp_list$`Iteration_query-def`
+  
+  # Only proceed with extracting metadata if hits found
+  # When no hits are found, there is a last element called "Iteration_message"
+  if(!any(grepl("Iteration_message", names(tmp_list)))){
+    
+    # List of hits 
+    # str(tmp_list$`Iteration_hits`)
+  
+    # Hit ID
+    hit_id <- tmp_list$`Iteration_hits`$Hit$Hit_id
+  
+    # Hit accession number
+    hit_acc_num <- tmp_list$`Iteration_hits`$Hit$Hit_accession
+  
+    # Metdata for the given hit, including accession number, assembly name and chromosome number
+    metad <- tmp_list$`Iteration_hits`$Hit$Hit_def
+    # metad 
+  
+    tmp_meta <- strsplit(metad, split = " ")[[1]]
+  
+    # Chromosome accession number
+    chrom_acc_num <- tmp_meta[1]
+  
+    # Species
+    spp <- paste(tmp_meta[2], tmp_meta[3], sep = "_")
+  
+    # If there is a chromosome number, return this
+    # Chromosome number
+    if(grepl("chromosome", metad)){
+      chrom_num_or_annotation <- paste(tmp_meta[6], gsub(",", "", tmp_meta[7]), sep = "-")
+    # Otherwise, return the given annotation (some predicted proteins for instance)
+    } else{
+      chrom_num_or_annotation <- metad
+    }
+    
+    # Hit length, e.g. the given scaffold or assembled chromosome length
+    hit_len <- as.numeric(tmp_list$Iteration_hits$Hit$Hit_len)
+    
+    # Score for high-scoring segment pair alignment with no gaps
+    Hsp_score <- tmp_list$`Iteration_hits`$Hit$Hit_hsps$Hsp$Hsp_score
+  
+    # E-value for the given hit
+    evalue <- tmp_list$`Iteration_hits`$Hit$Hit_hsps$Hsp$Hsp_evalue
+  
+    # Coordinates for the given hit
+    hit_start <- as.numeric(tmp_list$`Iteration_hits`$Hit$Hit_hsps$Hsp$`Hsp_hit-from`)
+    hit_end <- as.numeric(tmp_list$`Iteration_hits`$Hit$Hit_hsps$Hsp$`Hsp_hit-to`)
+  
+    # If the hit end coordinate is larger than the start coordinate, then I'm assuming this is the forward or positive strand
+    strand <- ifelse(hit_start < hit_end, "+", "-")
+    
+    tmp_df <- data.frame(outlier_fasta_headr = outlier_fasta_headr) %>%
+      dplyr::mutate(
+        hit_id = hit_id,
+        hit_acc_num = hit_acc_num,
+        chrom_acc_num = chrom_acc_num,
+        spp = spp,
+        hit_len = hit_len,
+        chrom_num_or_annotation = chrom_num_or_annotation,
+        Hsp_score = Hsp_score,
+        evalue = evalue,
+        hit_start = hit_start,
+        hit_end = hit_end,
+        strand = strand 
+      )
+   
+    # If no hits, just return the locus info
+  } else {
+    
+    tmp_df <- data.frame(outlier_fasta_headr = outlier_fasta_headr) %>%
+      dplyr::mutate(
+        hit_id = NA,
+        hit_acc_num = NA,
+        chrom_acc_num = NA,
+        spp = NA,
+        hit_len = NA,
+        chrom_num_or_annotation = NA,
+        Hsp_score = NA,
+        evalue = NA,
+        hit_start = NA,
+        hit_end = NA,
+        strand = NA
+      )
+   
+  }
+  
+  return(tmp_df)
+
+  
+}))
+
+glimpse(blastn_df)
+                       
+```
+
+Check out the hits.
+```{r echo = TRUE, eval = TRUE}
+
+# How many loci had no hits?
+blastn_df %>%
+  filter(is.na(hit_id)) %>%
+  nrow()
+  
+# These 19 loci had no hits
+blastn_df %>%
+  filter(is.na(hit_id)) %>%
+  pull(outlier_fasta_headr) %>%
+  as.character()
+
+# Among the 222 loci that did have hits, which hits had more annotation beyond chromosome numbers?
+blastn_df %>%
+  filter(!is.na(hit_id)) %>%
+  filter(!grepl("chromosome", chrom_num_or_annotation)) %>%
+  group_by(chrom_num_or_annotation) %>%
+  dplyr::summarise(
+    n = length(hit_id)
+  )
+
+# Which proteins are represented?
+# 10 predicted proteins, 2 hits to unplaced genomic scaffolds
+blastn_df %>%
+  filter(!is.na(hit_id)) %>%
+  filter(!grepl("chromosome", chrom_num_or_annotation)) %>%
+  pull(chrom_num_or_annotation)
+
+# Among the 222 loci that did have hits, which hits had annotation of just chromosome numbers?
+blastn_df %>%
+  filter(!is.na(hit_id)) %>%
+  filter(grepl("chromosome", chrom_num_or_annotation)) %>%
+  group_by(chrom_num_or_annotation) %>%
+  dplyr::summarise(
+    n = length(hit_id)
+  )
+
+
+```
+
+How to proceed from here? It probably makes sense to extend genomic coordinates in either direction...but I'm not sure of how to do this exactly when there are multiple chromosomes. But keep in mind that this blastn was done with the full set of chromosomes that was indexed by samtools faidx. Therefore, the coordinates returned by blastn are from the indexed genome across chromsomes, and samtools faidx should be able to pull out the right coordinates after they've been extended in either direction
+
+Decided to extend genomic coordinates 10kb in either direction. Use Hussein et al. 2020 as a reference to back this up, they used 10kb sliding windows to detect selective sweeps in a rapid avian radiation.
+
+Here, modifying code I'd written previously for analysis with the single-end libraries. Write out a text file that will be fed to samtools faidx. I performed this step for the 222 outlier loci that had hits to the indexed budgie genome.
+```{r echo = TRUE, eval = TRUE}
+
+blastn_hits_df <- blastn_df %>%
+  filter(!is.na(hit_id)) %>%
+  droplevels()
+glimpse(blastn_hits_df)
+
+# Extract a 10kb flanking region
+flank <- 10000
+
+# Create a new file to hold the lines for samtools faidx that will be used to extract sequences with extended coordinates around original hits
+file_nm <- "extended_coordinates4samtools.txt"
+
+# Remove previous versions
+file.remove(file.path(path, file_nm))
+
+# Iterate over hits
+# i <- 1 # positive strand
+# i <- 5 # negative strand
+# i <- 212 # positive strand, small genome segment hit
+extended_coords <- rbindlist(pblapply(1:nrow(blastn_hits_df), function(i){
+  
+  # Forward or positive strand is 5'-3', convention is to read from L to R, or positive numeric direction, e.g., start position is smaller than the end position
+  # Therefore, the reverse or negative strand will have a start position greater than end position
+  # This is already encoded in the column "strand"
+  
+  # Extend genomic coordinates differently depending on whether the hit is on the positive or negative strand
+  # Also, make sure to extend 10kb in either direction if the given hit is far enough away from the start and end of the given genome segment
+  if(blastn_hits_df$strand[i] == "+"){
+    
+    # Find the distance in basepairs (bp), between the hit start and end, and the start and end of the given genome segment
+    # Here, the start of the given genome segment is assumed to be 0, and the end is the length of that genome segment (in column "hit_len")
+    diff_start <- blastn_hits_df$hit_start[i] - 0
+    diff_end <- blastn_hits_df$hit_len[i] - blastn_hits_df$hit_end[i]
+      
+    # If the distance of the hit coordinates from the start and end of the given genome segment allow for extracting 10kb in either direction, then do so
+    if(all(diff_start & diff_end >= flank)){
+        
+      flank_used <- (flank)
+      extended_hit_start <- blastn_hits_df$hit_start[i] - flank_used
+      extended_hit_end <- blastn_hits_df$hit_end[i] + flank_used
+      
+    # If either the start or end difference in coordinates is less than the flanking region, then take the whole genome segment
+    } else if(diff_start < flank | diff_end < flank){
+        
+      flank_used <- "took genome segment"
+      extended_hit_start <- 0
+      extended_hit_end <- blastn_hits_df$hit_len[i]
+      
+    }
+    
+    # Create lines that can be used as input to extract sequences using samtools faidx
+    seqs <- paste(blastn_hits_df$chrom_acc_num[i], paste(extended_hit_start, extended_hit_end, sep = "-"), sep = ":")
+    
+  # Change the logic for the negative strand. Here, the hit_start must be within 10kb of the end of the genome segment, and the hit_end within 10kb of the start of the genome segment
+  } else if(blastn_hits_df$strand[i] == "-"){
+    
+    # Find the distance in basepairs (bp), between the hit start and end, and the start and end of the given genome segment
+    # Here, the start of the given genome segment is assumed to be 0, and the end is the length of that genome segment (in column "hit_len")
+    diff_start <- blastn_hits_df$hit_len[i] - blastn_hits_df$hit_start[i]
+    diff_end <- blastn_hits_df$hit_end[i] - 0
+      
+    # If the distance of the hit coordinates from the start and end of the given genome segment allow for extracting 10kb in either direction, then do so
+    # Note the reversal of the operations compared to the positive strand
+    if(all(diff_start & diff_end >= flank)){
+        
+      extended_hit_start <- blastn_hits_df$hit_start[i] + flank
+      extended_hit_end <- blastn_hits_df$hit_end[i] - flank
+      flank_used <- (flank)
+        
+    # If either the start or end difference in coordinates is less than the flanking region, then take the whole genome segment
+    } else if(diff_start < flank | diff_end < flank){
+        
+      flank_used <- "took genome segment"
+      extended_hit_start <- blastn_hits_df$hit_len[i]
+      extended_hit_end <- 0
+      
+    }
+    
+    # Create lines that can be used as input to extract sequences using samtools faidx
+    # Here, reversing the start and end for samtools, and will need to check this carefully
+    seqs <- paste(blastn_hits_df$chrom_acc_num[i], paste(extended_hit_end, extended_hit_start, sep = "-"), sep = ":")
+    
+  }
+
+  # Print lines for samtools faidx to the same file as all other lines
+  
+  # Initialize file name
+  tmp_nm <- file.path(path, file_nm)
+
+  # Add two lines per individual, each represents an allele
+  cat(paste(seqs, "\n", sep = ""), file = tmp_nm, sep = "", append = TRUE)
+    
+  # In addition to writing out files for samtools faidx, also return a data frame specifying new coordinates and the size of the flanking region used
+  tmp_df <- data.frame(
+      locus_id = blastn_hits_df$outlier_fasta_headr[i],
+      hit_id = blastn_hits_df$hit_id[i],
+      orig_start = blastn_hits_df$hit_start[i],
+      orig_end = blastn_hits_df$hit_end[i],
+      new_start = extended_hit_start,
+      new_end = extended_hit_end,
+      strand = blastn_hits_df$strand[i],
+      flank_size_used = flank_used
+    )
+  # class(tmp_df)
+  
+  return(tmp_df)
+  
+}))
+
+glimpse(extended_coords)
+
+# I checked a handful of extended coordinates for positive and negative strand hits, looks good
+extended_coords %>%
+  View()
+
+# None of the new extended coordinates are negative
+extended_coords %>%
+  filter(new_start < 0 | new_end < 0)
+
+# Sizes of genome segments used when the segments were small?
+extended_coords %>%
+  filter(flank_size_used == "took genome segment")
+
+# These genome segments ranged from 6048 to 10867bp for positive strands
+extended_coords %>%
+  filter(flank_size_used == "took genome segment") %>%
+  filter(!new_start == 0) %>%
+  pull(new_start) %>%
+  range()
+
+# And 780 to 10641bp for negative strands
+extended_coords %>%
+  filter(flank_size_used == "took genome segment") %>%
+  filter(!new_end == 0) %>%
+  pull(new_end) %>%
+  range()
+
+# I opened the .txt file created, it has 222 lines as expected, and separators look good
+
+```
+
+
+After generating the extended coordinates, use faidx to pull out new FASTA sequences from the budgie genome, then blastx these sequences to the NCBI nr database.
+

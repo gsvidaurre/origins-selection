@@ -467,7 +467,7 @@ Looped over K = 2 to K = 10 to read in CLUMPP results and make Structure raphics
 
 path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/Structure_outliers"
 
-Ks <- seq(2, 9, 1) # Read files up to K9 as K10 still running in CLUMPP
+Ks <- seq(2, 10, 1)
 
 # k <- 1
 qdf_list <- invisible(pblapply(1:length(Ks), function(k){
@@ -559,16 +559,17 @@ names(lab_df) <- " "
 length(Ks)
 
 # When using all 10 K
-# cols <- c("firebrick", "royalblue", "gold2", "grey35", "wheat", "coral", "slateblue1", "orangered", "black", "maroon")
+cols <- c("firebrick", "royalblue", "gold2", "grey35", "wheat", "coral", "slateblue1", "orangered", "black", "maroon")
 
 # K of 2 to 5
-cols <- c("royalblue", "firebrick", "gold2", "grey35", "coral")
+# cols <- c("royalblue", "firebrick", "gold2", "grey35", "coral")
 
 # K of 6 and beyond don't provide much more information
 # alignK aligns colors for clusters, at least for the first few K
 
-# With individual labels, K 2 - 9, no legend
-# p <- plotQ(alignK(qdf_list[c(1:8)]), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 12, grplab = lab_df, grplabsize = 6, grplabcol = "black", grplabface = "bold", linesize = 10, grplabspacer = 0, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 1), clustercol = cols, splab = spnames[c(1:8)], spbgcol = "grey85", splabcol = "black", splabsize = 12, splabface = "bold", showindlab = FALSE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = FALSE)
+# With individual labels, K 2 - 10, no legend
+# p <- plotQ(alignK(qdf_list), returnplot = TRUE, exportplot = FALSE, quiet = TRUE, basesize = 12, grplab = lab_df, grplabsize = 6, grplabcol = "black", grplabface = "bold", linesize = 10, grplabspacer = 0, pointsize = 6, linealpha = 0.2, pointcol = "white", grplabpos = 0.5, linepos = 0.5, divcol = "white", divsize = 0.55, grplabheight = 2.75, grplabangle = 0, panelratio = c(4, 1), clustercol = cols, splab = spnames, spbgcol = "grey85", splabcol = "black", splabsize = 12, splabface = "bold", showindlab = FALSE, useindlab = TRUE, indlabangle = 90, indlabcol = "black", barbordersize = 0.1, barbordercolour = "white", indlabvjust = -0.5, indlabhjust = 0, indlabsize = 6, barsize = 1, theme = "theme_bw", imgoutput = "join", showyaxis = TRUE, panelspacer = 0.25, showlegend = FALSE)
+# 
 # grid.arrange(p$plot[[1]])
 # 
 # rownames(qdf_list[1])

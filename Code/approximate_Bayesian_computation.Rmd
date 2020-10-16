@@ -35,7 +35,9 @@ out_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/ABC"
 map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
 
 gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
 seed <- 401
+cores <- parallel::detectCores() - 2
 
 ```
 
@@ -258,7 +260,7 @@ The whitelist of the 320 neutral loci made in "FST_calculations.Rmd" will be use
 
 Once these were made, I uploaded to the info folder on Discovery, and made a new script to run Stacks::populations with the whitelist of 320 neutral loci to get VCF files so as to calculate the observed mSFS with easySFS.py.
 
-# Finding optimla bins
+# Finding optimal bins
 
 From the delimitR manual: "The user must specify how many bins will be used to summarize the SFS. This number should not be greater than the sample size of the population with the fewest samples, as this results in sparse sampling of the SFS. Large values lead to a more complete summary of the data, but also lead to a more sparsely sampled SFS and increased computation times. Users should use exploratory analyses to find the optimal trade-off between computational time and error rates. The user must specify the number of classes that will be used in the binned SFS."
 
@@ -268,202 +270,290 @@ Pretty sure this means constructing different priors with the makeprior() functi
 
 Since I'm testing each invasive population separately, with 6 models each, the optimal number of bins should be assessed with each invasive population. 
 
-Here, testing with BARC and CNCT.
+I tested with BARC and CNCT. Binning the simulated mSFS for BARC with 9 bins took about 30 minutes, but 27 bins for CNCT was taking far too long. Since the trade-off is error rates versus computational time, and in previous exploration with BARC I observed low eeror rates with 5 bins, I will just use an intermediate of 8 bins across all invasive populations, as this is the smallest number of samples anyways for WASH and ZARA.
 
-Create a traits file.
+Create a traits file per invasive population, in delimitR format. The traits file is needed to build each prior with the simulated MSFS, binned into 8 bins across models. 
 ```{r echo = TRUE, eval = FALSE}
 
-tmp_path <- file.path(out_path, "ABC_BARC")
+# Iterate over invasive range sampling sites (populations in these analyses)
+sites <- samps_ABC_df %>%
+  filter(range == "Invasive") %>%
+  pull(site) %>%
+  unique() %>%
+  as.character()
+sites 
+length(sites) 
 
-# Make a traits file
-file_nm <- "popmap_mergedSNPs_ABCmodelling_BARC.txt"
-
-pop_map <- read.table(file.path(map_path, file_nm), sep = "\t")
-str(pop_map)
-# nrow(pop_map)
-
-# Substitute populations with a zero-based naming system
-pop_map$V2 <- as.numeric(gsub("pop", "", pop_map$V2))
-pop_map$V2 <- pop_map$V2
+# i <- 1
+invisible(pblapply(1:length(sites), function(i){
   
-# Remove previous versions
-file.remove(file.path(tmp_path, "traits.txt"))
+  tmp_path <- file.path(out_path, paste("ABC_", sites[i], sep = ""))
 
-# Print the header
-header <- c(paste(c("traits", "species"), collapse = "\t"), "\n", sep = "")
-cat(header, file = file.path(tmp_path, "traits.txt"), append = TRUE, sep = "")
+  # Make a traits file
+  file_nm <- paste("popmap_mergedSNPs_ABCmodelling_", sites[i], ".txt", sep = "")
 
-# Print rows
+  pop_map <- read.table(file.path(map_path, file_nm), sep = "\t")
+  # str(pop_map)
+  # nrow(pop_map)
+
+  # Substitute populations with a zero-based naming system
+  pop_map$V2 <- as.numeric(gsub("pop", "", pop_map$V2))
+  pop_map$V2 <- pop_map$V2
   
-# x <- 1
-invisible(pblapply(1:nrow(pop_map), function(x){
-  
-  # Initialize file name
-  tmp_nm <- file.path(tmp_path, "traits.txt")
+  # Remove previous versions
+  file.remove(file.path(tmp_path, "traits.txt"))
 
-  # Add two lines per individual, each represents an allele
-  if(x != nrow(pop_map)){
-    cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
-    cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
-  # Very last individual should not have a new line added after the second allele
-  } else {
-    cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
-    cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), file = tmp_nm, sep = "", append = TRUE)
-  }
+  # Print the header
+  header <- c(paste(c("traits", "species"), collapse = "\t"), "\n", sep = "")
+  cat(header, file = file.path(tmp_path, "traits.txt"), append = TRUE, sep = "")
+
+  # Print rows
+  # x <- 1
+  invisible(pblapply(1:nrow(pop_map), function(x){
+  
+    # Initialize file name
+    tmp_nm <- file.path(tmp_path, "traits.txt")
+
+    # Add two lines per individual, each represents an allele
+    if(x != nrow(pop_map)){
+      cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+      cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+    # Very last individual should not have a new line added after the second allele
+    } else {
+      cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
+      cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), file = tmp_nm, sep = "", append = TRUE)
+    }
+
+  }))
 
 }))
 
-# Looks good
 
 ```
 
-Build RF classifiers with different numbers of bins. 5 individuals (10 samples because diploid). The process will look like this: iterate over numbers of classes, build a full prior, reduce the prior, upload to Discovery and train all priors, then download and plot average OOB error over the number of bins. Until delimitR is installed on Discovery, I have to do most of this (except model training and plotting) on my local machine.
+# Build priors with 5 bins
 
-Do this for FLOR as well, to test a smaller and larger invasive population, respectively....actually, might be able to just skip this step by just using one less than the smallest sample sizes per population, or an intermediate sample size, to minimize computational time. If delimitR is installed on Discovery soon, then computational time is much less of an issue. The smallest sample sizes used for any invasive population or model was 8 (4 diploid individuals for each WASH and ZARA). The largest was 28 (14 individuals each for URY, NAR, FLOR, CNCT).
-
-How long does it take to generate 9 classes for BARC?
+Building priors with an intermediate number of bins for now, since I'm running this on my local machine with fewer computational resources.
 ```{r echo = TRUE, eval = FALSE}
 
-tmp_path <- file.path(out_path, "ABC_BARC")
+sites <- samps_ABC_df %>%
+  filter(range == "Invasive") %>%
+  pull(site) %>%
+  unique() %>%
+  as.character()
+sites 
+length(sites) 
 
-nClasses <- 9
-
-obsprefix <- "BARC_model"
+nClasses <- 5
 obsspecies <- 3 # Number of demes
-traitsfile <- "traits.txt"
-cores <- parallel::detectCores() - 2
 
-# This function assumes the working directory has been set to the folder containing fcs26 output folders
-# Must remove any folder previously made for priors (called "Prior*")
-setwd(tmp_path)
+# Iterate over invasive populations to prepare the observed mSFS 
+invisible(pblapply(1:length(sites), function(i){
+  
+  tmp_path <- file.path(out_path, paste("ABC_", sites[i], sep = ""))
+  
+  # Get the traits file
+  traits <- file.path(tmp_path, "traits.txt")
+  
+  obsprefix <- paste(sites[i], "model", sep = "_")
+  
+  # This function assumes the working directory has been set to the folder containing fcs26 output folders
+  # Must remove any folder previously made for priors (called "Prior*")
+  setwd(tmp_path)
 
-system.time(
-    
   FullPrior <- makeprior(
     prefix = obsprefix,
     nspec = obsspecies,
     nclasses = nClasses,
     mydir = tmp_path,
-    traitsfile = traitsfile,
+    traitsfile = traits,
     threshold = 100,
     thefolder = "Prior",
     ncores = cores
   )
-    # str(FullPrior)
+  # CNCT looks good
+  str(FullPrior)
+  
+  saveRDS(FullPrior, file.path(tmp_path, "FullPrior_5bins.RDS"))
+
+  # Remove rows with zero variance, e.g. bins for which no SNPs were ever observed across all models and simulations. 
+  ReducedPrior <- Prior_reduced(FullPrior)
+  # str(ReducedPrior)
+
+  saveRDS(ReducedPrior, file.path(tmp_path, paste("ReducedPrior_5bins.RDS", sep = "")))
     
-)
+  # Remove both priors from global environment to avoid memory issues
+  rm(list = c("FullPrior", "ReducedPrior"))
+  
+}))
 
-
-# took about 30 minutes
-#    user   system  elapsed 
-# 9112.966  333.551 2163.775 
-
-saveRDS(FullPrior, file.path(tmp_path, "FullPrior_9bins.RDS"))
-
-# Remove rows with zero variance, e.g. bins for which no SNPs were ever observed across all models and simulations. 
-ReducedPrior <- Prior_reduced(FullPrior)
-# str(ReducedPrior)
-
-saveRDS(ReducedPrior, file.path(tmp_path, paste("ReducedPrior_9bins.RDS", sep = "")))
-    
-rm(list = c("FullPrior", "ReducedPrior"))
+# Took 5.5 hours to do the 8 sites after BARC which itself took at least 30 minutes
 
 ```
 
-How long does it take to generate 27 classes for CNCT?
-Create a traits file.
+
+# Train random forests classifiers
+
+Needs to be done on Discovery. I downloaded the trained classifiers to my external hard drive.  
+
+
+# Predicting the best model per population
+
+To perform prediction, the observed mSFS must be binned in the same way as the RF classifiers. After some troubleshooting, I also realized that the traits file provided during this binning step must reflect the number of samples remaining after downsampling the observed MSFS in easySFS. 
+
+### New trait files for observed mSFS
+
+Here, I made new traits files for the observed MSFS per invasive population. These had no individual ID info, and the number of samples per population remaining after downsampling. 
 ```{r echo = TRUE, eval = FALSE}
 
-tmp_path <- file.path(out_path, "ABC_CNCT")
+sites <- samps_ABC_df %>%
+  filter(range == "Invasive") %>%
+  pull(site) %>%
+  unique() %>%
+  as.character()
+sites 
+length(sites) 
 
-# Make a traits file
-file_nm <- "popmap_mergedSNPs_ABCmodelling_CNCT.txt"
+# i <- 1
+# Iterate over invasive populations to prepare the observed mSFS 
+invisible(pblapply(1:length(sites), function(i){
 
-pop_map <- read.table(file.path(map_path, file_nm), sep = "\t")
-str(pop_map)
-# nrow(pop_map)
-
-# Substitute populations with a zero-based naming system
-pop_map$V2 <- as.numeric(gsub("pop", "", pop_map$V2))
-pop_map$V2 <- pop_map$V2
+  tmp_path <- file.path(out_path, paste("ABC_", sites[i], sep = ""))
   
-# Remove previous versions
-file.remove(file.path(tmp_path, "traits.txt"))
+  # Get the observed mSFS 
+  obsmSFS <- readLines(file.path(tmp_path, paste(sites[i], "MSFS.obs", sep = "_")))
 
-# Print the header
-header <- c(paste(c("traits", "species"), collapse = "\t"), "\n", sep = "")
-cat(header, file = file.path(tmp_path, "traits.txt"), append = TRUE, sep = "")
+  # Get the number of samples
+  samp_sizes <- as.numeric(strsplit(strsplit(obsmSFS[2], split = "\t")[[1]][2], split = " ")[[1]])
+  # samp_sizes # populations 0, 1, 2
 
-# Print rows
-  
-# x <- 1
-invisible(pblapply(1:nrow(pop_map), function(x){
-  
-  # Initialize file name
-  tmp_nm <- file.path(tmp_path, "traits.txt")
+  pops <- seq(0, 2, 1)
+  # pops
 
-  # Add two lines per individual, each represents an allele
-  if(x != nrow(pop_map)){
-    cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
-    cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
-  # Very last individual should not have a new line added after the second allele
-  } else {
-    cat(paste(paste(pop_map[x, 1], "allele_1", sep = "_"), pop_map[x, 2], collapse = "\t"), "\n", file = tmp_nm, sep = "", append = TRUE)
-    cat(paste(paste(pop_map[x, 1], "allele_2", sep = "_"), pop_map[x, 2], collapse = "\t"), file = tmp_nm, sep = "", append = TRUE)
+  # Make a traits file
+  file_nm <- paste("traits_observedMSFS_", sites[i], ".txt", sep = "")
+
+  # Remove previous versions if they exist
+  if(file.exists(file.path(tmp_path, file_nm))){
+    file.remove(file.path(tmp_path, file_nm))
   }
+
+  # Print the header
+  header <- c(paste(c("traits", "species"), collapse = "\t"), "\n", sep = "")
+  cat(header, file = file.path(tmp_path, file_nm), append = TRUE, sep = "")
+
+  # Make a data frame that will be used to write out info
+  traits_df <- rbindlist(pblapply(1:length(pops), function(x){
+  
+    tmp_df <- data.frame(
+      sample = paste(paste(rep("sample", samp_sizes[x]), rep(seq(1, samp_sizes[x]/2, 1), each = 2), sep = "_"), paste("allele", rep(c(1, 2), samp_sizes[x]/2), sep = ""), sep = "_"),
+      pop = pops[x]
+    )
+  
+  }))
+
+  # Write out each line of traits_df to the traits file
+  invisible(pblapply(1:nrow(traits_df), function(x){
+
+    # Print each line: represents an allele per sample of the downsampled observed MSFS 
+    if(x != nrow(traits_df)){
+      cat(paste(traits_df$sample[x], traits_df$pop[x], sep = "\t"), "\n", file = file.path(tmp_path, file_nm), sep = "", append = TRUE)
+    # Very last individual should not have a new line added after the second allele
+    } else {
+      cat(paste(traits_df$sample[x], traits_df$pop[x], sep = "\t"), file = file.path(tmp_path, file_nm), sep = "", append = TRUE)
+    }
+
+  }))
+  
+}))
+
+# Opened in Vim, looks good
+
+```
+
+
+### Prepare observed mSFS
+
+Prediction and then obtaining the posterior probability with a second (regression model) is very intensive, and can't be done on my local machine. I moved this workflow to Discovery, but first have to perform pre-processing of the observed mSFS per invasive population and upload files to Discovery.
+
+Preparing the observed mSFS per invasive population, any previous versions must be deleted (done in code below).
+```{r echo = TRUE, eval = FALSE}
+
+sites <- samps_ABC_df %>%
+  filter(range == "Invasive") %>%
+  pull(site) %>%
+  unique() %>%
+  as.character()
+sites 
+length(sites) 
+
+nClasses <- 5
+obsspecies <- 3
+
+# Iterate over invasive populations to prepare the observed mSFS 
+invisible(pblapply(1:length(sites), function(i){
+  
+  tmp_path <- file.path(out_path, paste("ABC_", sites[i], sep = ""))
+  
+  # Get the observed mSFS 
+  observedSFS <- file.path(tmp_path, paste(sites[i], "MSFS", sep = "_"))
+
+  # Get the traits file for the observed mSFS
+  traits <- file.path(tmp_path, paste("traits_observedMSFS_", sites[i], ".txt", sep = ""))
+
+  # Get the full and reduced priors
+  FullPrior <- readRDS(file.path(tmp_path, "FullPrior_5bins.RDS"))
+  ReducedPrior <- readRDS(file.path(tmp_path, paste("ReducedPrior_5bins.RDS", sep = "")))
+  
+  # Remove any previous pre-processed versions of the mSFS
+  # Otherwise subsequent pre-processing runs will append more info to these same files
+  preproc_obsMSFS <- paste(sites[i], "_MSFS_processed.obs", sep = "")
+  binned_obsMSFS <- paste(sites[i], "_MSFS_binned.obs", sep = "")
+  
+  if(file.exists(file.path(tmp_path, preproc_obsMSFS))){
+    file.remove(file.path(tmp_path, preproc_obsMSFS))
+  }
+  
+  if(file.exists(file.path(tmp_path, binned_obsMSFS))){
+    file.remove(file.path(tmp_path, binned_obsMSFS))
+  }
+  
+  # Prepare the observed MSFS with the same number of bins used to build priors
+  tmp_observed <- prepobserved(
+    observed = observedSFS,
+    FullPrior = FullPrior,
+    ReducedPrior = ReducedPrior,
+    nclasses = nClasses,
+    npops = obsspecies,
+    traitsfile = traits,
+    threshold = 100
+  )
+  
+  rm(list = "tmp_observed")
 
 }))
 
-# Looks good
+
+# tmp_path <- file.path(out_path, paste("ABC_", "BARC", sep = ""))
+# read.csv(file.path(tmp_path, paste("BARC", "MSFS_binned.obs", sep = "_")), sep = "\t", header = FALSE)
 
 ```
 
-```{r echo = TRUE, eval = FALSE}
 
-tmp_path <- file.path(out_path, "ABC_CNCT")
-
-nClasses <- 27
-
-obsprefix <- "CNCT_model"
-obsspecies <- 3 # Number of demes
-traitsfile <- "traits.txt"
-cores <- parallel::detectCores() - 2
-
-# This function assumes the working directory has been set to the folder containing fcs26 output folders
-# Must remove any folder previously made for priors (called "Prior*")
-setwd(tmp_path)
-
-system.time(
-    
-  FullPrior <- makeprior(
-    prefix = obsprefix,
-    nspec = obsspecies,
-    nclasses = nClasses,
-    mydir = tmp_path,
-    traitsfile = traitsfile,
-    threshold = 100,
-    thefolder = "Prior",
-    ncores = cores
-  )
-    # str(FullPrior)
-    
-)
+In addition to prediction, need to see delimitR manual and referred article to regress over the OOB error rates as a way of assessing confidence in the model.
 
 
-# took about TKTK minutes
 
-saveRDS(FullPrior, file.path(tmp_path, "FullPrior_27bins.RDS"))
+Build priors with mSFS binned into 8 bins per invasive populations.  
 
-# Remove rows with zero variance, e.g. bins for which no SNPs were ever observed across all models and simulations. 
-ReducedPrior <- Prior_reduced(FullPrior)
-# str(ReducedPrior)
+RF classifiers with different numbers of bins. 5 individuals (10 samples because diploid). The process will look like this: iterate over numbers of classes, build a full prior, reduce the prior, upload to Discovery and train all priors, then download and plot average OOB error over the number of bins. Until delimitR is installed on Discovery, I have to do most of this (except model training and plotting) on my local machine.
 
-saveRDS(ReducedPrior, file.path(tmp_path, paste("ReducedPrior_27bins.RDS", sep = "")))
-    
-rm(list = c("FullPrior", "ReducedPrior"))
 
-```
 
+
+# Testing delimitR/abcrf model selection with BARC
+
+This was prior to changing to 14 URY individuals (used 20 for these simulations)
 
 ## Testing delimitR model selection with fsc26 simulated data
 
