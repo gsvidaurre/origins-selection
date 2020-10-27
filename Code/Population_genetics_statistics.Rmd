@@ -1,0 +1,230 @@
+---
+title: "Population genetics statistics"
+author: "Grace Smith-Vidaurre"
+date: "October 21, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Parsing blastn results to run blastx, also parsing blastx results. For outliers and extended sequences of the budgie genome.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "hierfstat", "PopGenome", "rlist")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to Stacks output, including the HWE filtered SNPs in Structure format 
+res_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks"
+
+# Path where BLAST files will be read and written
+path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BLAST"
+ 
+# Path where population maps written
+map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+seed <- 401
+cores <- parallel::detectCores() - 2
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Use hierfstat to get observed heterozygosity (Ho) and within population gene diversity (Hs). 
+```{r echo = TRUE, eval = TRUE}
+
+data(gtrunchier)
+str(gtrunchier)
+
+# Needs a data frame in which the first column is the population, and the following columns are the genotypes per individual (one locus per column)
+# I might be able to get this from reading in and manipulating the associated Structure file for the 561 neutral and outlier SNPs
+?basic.stats
+
+file_nm <- "merged_HWE_missingData_filters_noPosControlDups.str"
+
+struc <- read.table(file.path(file.path(res_path, "merged"), file_nm), skip = 1)
+# glimpse(struc)
+dim(struc) # 346 rows (173 individuals), 563 columns
+head(struc[, 1]) # Sample names contained in the first column
+# length(unique(struc[, 1]))
+head(struc[, 2]) # Population ID (single population) contained in second column
+unique(struc[, 2])
+names(struc)
+
+# Get the column headers
+
+# Read the first line of metadata, these are the column names
+col_nms <- readLines(file.path(file.path(res_path, "merged"), file_nm), n = 1)
+col_nms
+
+# Split out the column headers into a vector, one element per header
+mrkrs <- strsplit(strsplit(col_nms, split = "\t")[[1]][3], split = "[[:space:]]")[[1]]
+head(mrkrs)
+length(mrkrs)
+
+# Get rid of the space that precedes the first locus column header
+mrkrs <- mrkrs[-which(mrkrs == "")]
+head(mrkrs)
+length(mrkrs)
+
+# Add the individual and population column headers that precede the locus column names
+col_nms <- c("indiv", "pop", mrkrs)
+head(col_nms)
+length(col_nms)
+
+# Add back the updated column names
+# Looks good
+names(struc) <- col_nms
+glimpse(struc[, 1:10])
+class(struc)
+
+# Iterate over individuals in this data frame to return a new data frame with one row per individual, the sampling or collection location and the region in the first column, and then the two alleles forming the full genotype pasted together the subsequent columns
+indivs <- as.character(unique(struc$indiv))
+length(indivs)
+
+# i <- 5
+# z <- 1
+genotypes_df <- rbindlist(pblapply(1:length(indivs), function(i){
+  
+  # Get row indices, two per individual b/c diploid
+  inds <- grep(indivs[i], struc$indiv)
+  # inds
+  
+  # Get just the genotype data
+  genos <- struc[inds, -grep("indiv|pop", names(struc))]
+  # str(genos)
+  
+  # Paste together alleles per locus
+  tmp_df <- apply(genos, 2, function(X){
+    as.numeric(paste(X, collapse = ""))
+  })
+  
+  # Transpose loci to columns, update column names
+  tmp_df <- data.frame(t(tmp_df))
+  names(tmp_df) <- gsub("^X", "locus_", names(tmp_df))
+  # glimpse(tmp_df)
+  # class(tmp_df)
+
+  # Get sampling site and region per individual
+  site <- meta_dats$Site_Code[grep(paste("^", indivs[i], "$", sep = ""), meta_dats$Sample_Name)]
+  
+  region <- meta_dats$Region[grep(paste("^", indivs[i], "$", sep = ""), meta_dats$Sample_Name)]
+  
+  return(
+    tmp_df %>%
+      dplyr::mutate(
+        region = region,
+        site = site,
+        indiv = indivs[i]
+      ) %>%
+      dplyr::select(
+        region, site, indiv, names(.)[grep("locus_", names(.))]
+      )
+  )
+  
+}))
+
+# Note that there are warnings for the NAs inserted for the -9999 missing data entries
+glimpse(genotypes_df)
+
+# Sample sizes for the merged neutral and outlier SNPs across sites
+genotypes_df %>%
+  group_by(site) %>%
+  dplyr::summarise(
+    n_indivs = length(indiv)
+  ) %>%
+  View()
+
+# Sample sizes for the merged neutral and outlier SNPs across regions
+genotypes_df %>%
+  group_by(region) %>%
+  dplyr::summarise(
+    n_indivs = length(indiv)
+  )
+
+```
+
+Get statistics by region.
+```{r echo = TRUE, eval = TRUE}
+
+# This worked with the missing data!
+popgen_stats <- basic.stats(
+  data = genotypes_df %>%
+    dplyr::select(-c(site, indiv)),
+  diploid = TRUE,
+  digits = 4
+)
+
+# I'm interested in the overall object, which has statistics averaged over loci
+# But this also averaged over regions
+# str(popgen_stats)
+# names(popgen_stats)
+
+# str(popgen_stats$overall)
+# popgen_stats$overall
+
+# Average over loci per region in this table to get Ho (observed heterozygosity)
+# str(popgen_stats$Ho)
+
+# This is Ho (observed heterozygosity) by region across neutral and outlier loci
+round(apply(popgen_stats$Ho, 2, mean), 3)
+
+# This is Hs (observed gene diversities) by region across neutral and outlier loci
+round(apply(popgen_stats$Hs, 2, mean), 3)
+
+```
+
+Get statistics by sampling site.
+```{r echo = TRUE, eval = TRUE}
+
+# This worked with the missing data!
+popgen_stats <- basic.stats(
+  data = genotypes_df %>%
+    dplyr::select(-c(region, indiv)),
+  diploid = TRUE,
+  digits = 4
+)
+
+# I'm interested in the overall object, which has statistics averaged over loci
+# But this also averaged over sites
+# str(popgen_stats)
+# names(popgen_stats)
+
+# str(popgen_stats$overall)
+# popgen_stats$overall
+
+# Average over loci per site in this table to get Ho (observed heterozygosity)
+# str(popgen_stats$Ho)
+
+# This is Ho (observed heterozygosity) by site across neutral and outlier loci
+round(apply(popgen_stats$Ho, 2, mean), 3)
+
+# This is Hs (observed gene diversities) by site across neutral and outlier loci
+round(apply(popgen_stats$Hs, 2, mean), 3)
+
+```
+
+Later, can use PopGenome to get locality FST and Tajima's D if this is of interest.
+```{r echo = TRUE, eval = TRUE}
+
+
+
+
+```

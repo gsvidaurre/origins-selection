@@ -18,7 +18,7 @@ Clean environment, load packages, set path.
 
 rm(list = ls())
 
-X <- c("tidyverse", "pbapply", "data.table", "openxlsx", "forcats")
+X <- c("tidyverse", "pbapply", "data.table", "openxlsx", "forcats", "pracma", "vcfR")
 
 invisible(lapply(X, library, character.only = TRUE))
 
@@ -80,7 +80,7 @@ total_reads_df
 
 ```
 
-Read in the log files without headers, and return retained reads per sample.
+Read in the log files without headers, and return retained reads per sample. Also return the total reads per individual to report in the manuscript.
 ```{r echo = TRUE, eval = TRUE}
 
 # i <- 1
@@ -110,6 +110,9 @@ sample_reads_df <- rbindlist(pblapply(1:length(log_files), function(i){
   
     # Split the text on this line to get the number of reads in the 6th field
     num_reads <- strsplit(log_tmp[z], split = "\t")[[1]][6]
+    
+    # Get the total reads per individual too in the third field
+    num_tot <- strsplit(log_tmp[z], split = "\t")[[1]][3]
   
     # Get the sequencing type
     seq_type <- strsplit(log_files[i], split = "/")[[1]][8]
@@ -119,7 +122,7 @@ sample_reads_df <- rbindlist(pblapply(1:length(log_files), function(i){
     lib <- strsplit(strsplit(log_files[i], split = "/")[[1]][9], split = "\\.")[[1]][2]
   
     # Return a data frame with this info combined
-    return(data.frame(seq_type = seq_type, lib_name = lib, Sample_Name = sample_nm, retained_reads = num_reads))
+    return(data.frame(seq_type = seq_type, lib_name = lib, Sample_Name = sample_nm, total_reads = num_tot, retained_reads = num_reads))
   
   }))
   
@@ -137,6 +140,96 @@ table(sample_reads_df$seq_type, sample_reads_df$lib_name)
 # nrow(meta_dats)
 table(meta_dats$Sequencing_Type, meta_dats$Library_Plate)
       
+```
+
+Summary statistics for manuscript. Mean and SE total reads per individual.
+```{r echo = TRUE, eval = TRUE}
+
+sample_reads_df %>%
+  dplyr::mutate(
+    total_reads = as.numeric(as.character(total_reads)),
+    retained_reads = as.numeric(as.character(retained_reads))
+  ) %>%
+  group_by(seq_type) %>%
+  dplyr::summarise(
+    mean_total_reads = mean(total_reads),
+    se_total_reads = std_err(total_reads)
+  )
+
+
+```
+
+Get coverage from denovo_map.pl for both the single-end and paired-end runs as well as the gstacks log for merged SNPs.
+```{r echo = TRUE, eval = TRUE}
+
+log_files <- c(
+  "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks/single_end/denovo_map.log",
+  "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks/paired_end/denovo_map.log",
+  "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks/merged/sorted_bams/gstacks.log"
+)
+
+SNP_dataset <- c("Single-end", "Paired-end", "Merged")
+
+# Iterate over logs to obtain final mean and SE coverage reported per individual
+# i <- 3
+# z <- 1
+final_coverage_df <- rbindlist(pblapply(1:length(log_files), function(i){
+  
+  log_tmp <- readLines(log_files[i])
+  
+  # If not merged, then proceed
+  if(SNP_dataset[i] != "Merged"){
+  
+    # Get sample names
+    samp_nms <- log_tmp[grep("^Sample [0-9]+", log_tmp)]
+  
+    # Get the lines with final coverage
+    final_cov <- log_tmp[grep("^Final coverage", log_tmp)]
+  
+    # Iterate over samples to extract metadata of interest
+    tmp_df <- rbindlist(pblapply(1:length(samp_nms), function(z){
+    
+      # Get the sample name
+      sample_nm <- gsub("'", "", strsplit(samp_nms[z], split = " ")[[1]][5])
+      # sample_nm
+  
+      # Get final mean coverage
+      mean_cov <- as.numeric(gsub("mean=|;", "", strsplit(final_cov[z], split = " ")[[1]][3]))
+      mean_cov
+    
+      # Return a data frame with this info combined
+      return(data.frame(SNP_dataset = SNP_dataset[i], Sample_Name = sample_nm, Mean_coverage = mean_cov))
+  
+    }))
+    
+  # gstacks reported a single effective per-sample coverage  
+  } else {
+
+    # Get the single coverage statistic
+    # "  effective per-sample coverage: mean=18.7x, stdev=16.6x, min=1.7x, max=137.3x"
+    cov <- log_tmp[grep("effective per-sample coverage:", log_tmp)]
+    cov <- as.numeric(gsub("mean=|x,", "", strsplit(cov, split = " ")[[1]][6]))
+    # cov
+    
+    tmp_df <- data.frame(SNP_dataset = SNP_dataset[i], Sample_Name = NA, Mean_coverage = cov)
+    
+  }
+  
+  return(tmp_df)
+  
+}))
+
+final_coverage_df
+
+# Summarise over the SNP datasets
+final_coverage_df %>%
+  group_by(SNP_dataset) %>%
+  dplyr::summarise(
+    mean_coverage = mean(Mean_coverage),
+    se_coverage = std_err(Mean_coverage)
+  )
+
+
 ```
 
 Add 1 new column to the sample metadata: reads retained after process_radtags, which will then be plotted to check out the relative sample coverage.
@@ -634,3 +727,71 @@ invisible(pblapply(1:length(PE_optim), function(i){
 ```
 
 Once you've finished the optimization runs, and start the full Stacks runs, individuals to be dropped can be removed from Stacks analyses by commenting out their lines in the population map with a ‘#’ character.
+
+What was the mean coverage depth per SNP at each RAD-tag for the final pre-processed dataset of 561 merged SNPs? 174 individuals because positive controls were removed.
+```{r echo = TRUE, eval = FALSE}
+
+tmp_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks/merged/fstats_regions"
+
+vcf_merged <- read.vcfR(file.path(tmp_path, "populations.snps.vcf"))
+str(vcf_merged)
+
+# Read depth is DP
+vcf_merged@meta
+
+# This object contains the Reference and Alternate SNP indo
+vcf_merged@fix
+str(vcf_merged@fix)
+head(vcf_merged@fix)
+
+str(vcf_merged@gt)
+vcf_merged@gt[1, ]
+
+# Read depth is in the second field
+#                           FORMAT 
+#                      "GT:DP:AD:GQ:GL" 
+# SE_lib1_INV_MADR_B6_AACGTT.fil.sorted 
+# "0/1:63:21,42:40:-148.26,0.00,-65.22" 
+
+# Iterate over rows and get the mean depth per SNP
+dim(vcf_merged@gt)
+nrow(vcf_merged@gt)
+
+# i <- 1
+# z <- 1
+snp_depth_df <- rbindlist(pblapply(1:nrow(vcf_merged@gt), function(i){
+  
+  tmp <- vcf_merged@gt[i, 2:length(tmp)]
+  
+  tmp_df <- rbindlist(lapply(1:length(tmp), function(z){
+    
+    depth <- strsplit(tmp[z], split = ":")[[1]][2]
+    indiv <- names(tmp[z])
+    
+    return(data.frame(locus_ID = vcf_merged@fix[, "ID"][i], indiv = indiv, depth = depth))
+    
+  }))
+  
+  return(tmp_df)
+  
+}))
+
+glimpse(snp_depth_df)
+
+# Get the mean SNP read depth across individuals per SNPs, then the mean and SE of this
+snp_depth_df %>%
+  dplyr::mutate(
+    depth = as.numeric(as.character(depth))
+  ) %>%
+  group_by(locus_ID) %>%
+  dplyr::summarise(
+    mean_depth = mean(depth, na.rm = TRUE)
+  ) %>%
+  dplyr::summarise(
+    overall_mean_depth = mean(mean_depth),
+    overall_se_depth = std_err(mean_depth)
+  )
+
+# Observed heterozygosity [HO] and within population gene diversity [HS] were estimated in the R package HIERFSTAT (Goudet 2005)
+
+```

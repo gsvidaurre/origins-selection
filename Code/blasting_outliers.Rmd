@@ -11,15 +11,13 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 ```
 
-Purpose: Approximate Bayesian Computation analyses using the multidimensional site frequency spectrum (mSFS), the delimitR package developed by Megan Smith, and fastsimcaol2 for simulating the mSFS under different demographic scenarios. Installed delimitR version 2.0.2 from GitHub: https://github.com/meganlsmith. Had to install dependencies abcrf, sqldf and reticulate. Also installed the package radiator to convert between genind object and VCF format, needed to use Python code in another GitHub repo to get observed SFS data.
-
-Here, 6 models will be run per invasive population with sufficient samples: Uruguay (URY) origin, Northern Argentina (NAR) origin, admixed origin, and these same 3 models but with a longer bottleneck time that goes to the present. 
+Purpose: Parsing blastn results to run blastx, also parsing blastx results. For outliers and extended sequences of the budgie genome.
 
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
 rm(list = ls())
 
-X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "XML")
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx", "XML", "vcfR")
 invisible(lapply(X, library, character.only = TRUE))
 
 # Path to the metadata spreadsheet
@@ -370,6 +368,555 @@ extended_coords %>%
 
 ```
 
-
 After generating the extended coordinates, use faidx to pull out new FASTA sequences from the budgie genome, then blastx these sequences to the NCBI nr database.
 
+As the extended sequences and the FASTA sequences of the outliers themselves run on Dsicovery, I'm working with blastx results with just the FASTA sequences of outlier loci that I blasted against the budgie genome on NCBI online.
+```{r echo = TRUE, eval = TRUE}
+
+# Read in the XML as an XML
+xml_res <- xmlParse(file.path(path, "SVE81SK9014-Alignment.xml"))
+
+# Convert to a list
+blastx_res <- xmlToList(xml_res)
+glimpse(blastx_res)
+length(blastx_res)
+
+blastx_res[[8]] # Parameters used in the call to blastx
+blastx_res[[9]] # The last element contains the list of hits
+length(blastx_res[[9]]) # One list per outlier locus
+str(blastx_res[[9]][[1]])
+length(blastx_res[[9]][[1]])
+
+# Iterate over the list of hits and write out results of interest to a data frame
+# In doing so, assess the list of multiple hits per outlier locus, and only retain multiple hits if e-values are less than an order of magnitude from the top hit
+hit_list <- blastx_res[[9]]
+
+# Do any loci have more than one hit? Yes
+which(sapply(blastx_res[[9]], function(X){
+  length(X$`Iteration_hits`)
+}) > 1)
+
+# i <- 1 # no hits
+# i <- 16 # hits present
+# z <- 1
+blastx_df <- rbindlist(pblapply(1:length(hit_list), function(i){
+  
+  # cat(paste("i = ", i, "\n"))
+  
+  tmp_list <- hit_list[[i]]
+  # str(tmp_list)
+  # names(tmp_list)
+  
+  # FASTA header for the outlier locus
+  outlier_fasta_headr <- tmp_list$`Iteration_query-def`
+  
+  # Only proceed with extracting metadata if hits found
+  # Here, when no hits are found, the element called "Iteration_hits" has the value "\n"
+  if(length(tmp_list$`Iteration_hits`) > 1){
+    
+    # List of hits
+    # str(tmp_list$`Iteration_hits`)
+    
+    tmp_hit_list <- tmp_list$`Iteration_hits`
+    
+    # Iterate over hits to extract information
+    tmp_df2 <- rbindlist(lapply(1:length(tmp_hit_list), function(z){
+      
+      tmp_hit_list2 <- tmp_hit_list[[z]]
+      
+      # Hit number
+      hit_num <- tmp_hit_list2$Hit_num
+      
+      # Hit ID
+      hit_id <- tmp_hit_list2$Hit_id
+      
+      # Hit annotation
+      hit_annot <- tmp_hit_list2$Hit_def
+  
+      # Hit accession number
+      hit_acc_num <- tmp_hit_list2$Hit_accession
+  
+      # E-value for the given hit
+      evalue <- as.numeric(tmp_hit_list2$Hit_hsps$Hsp$Hsp_evalue)
+  
+      # Coordinates for the given hit
+      hit_start <- as.numeric(tmp_hit_list2$Hit_hsps$Hsp$`Hsp_hit-from`)
+      hit_end <- as.numeric(tmp_hit_list2$Hit_hsps$Hsp$`Hsp_hit-to`)
+  
+      # If the hit end coordinate is larger than the start coordinate, then I'm assuming this is the forward or positive strand
+      strand <- ifelse(hit_start < hit_end, "+", "-")
+    
+      tmp_df <- data.frame(outlier_fasta_headr = outlier_fasta_headr) %>%
+        dplyr::mutate(
+          hit_num = hit_num,
+          hit_id = hit_id,
+          hit_annot = hit_annot,
+          evalue = evalue,
+          hit_start = hit_start,
+          hit_end = hit_end,
+          strand = strand 
+        )
+      
+      return(tmp_df)
+  
+    }))
+   
+    # If no hits, just return the locus info
+  } else {
+    
+    tmp_df2 <- data.frame(outlier_fasta_headr = outlier_fasta_headr) %>%
+        dplyr::mutate(
+          hit_num = NA,
+          hit_id = NA,
+          hit_annot = NA,
+          evalue = NA,
+          hit_start = NA,
+          hit_end = NA,
+          strand = NA 
+        )
+   
+  }
+  
+  return(tmp_df2)
+
+  
+}))
+
+glimpse(blastx_df)
+
+```
+
+Which outlier loci had hits to the genome, and what functional regions are represented?
+```{r echo = TRUE, eval = TRUE}
+
+# 10 outlier had hits to budgie protein annotations, anywhere from 2 to 10
+blastx_df %>%
+  filter(!is.na(hit_num)) %>%
+  droplevels() %>%
+  group_by(outlier_fasta_headr) %>%
+  dplyr::summarise(
+    n_hits = length(hit_num)
+  )
+
+# How many loci had hits with the e-value threshold I'm currently using of 1e-15?
+# Five loci, with 1, 2 or 4 hits
+blastx_df %>%
+  filter(!is.na(hit_num)) %>%
+  filter(evalue <= 1e-15) %>%
+  droplevels() %>%
+  group_by(outlier_fasta_headr) %>%
+  dplyr::summarise(
+    n_hits = length(hit_num)
+  )
+
+# These are the hits I'm interested in reporting for the thesis chapter
+# I took the top hit per locus
+hitsOfinterest <- blastx_df %>%
+  filter(!is.na(hit_num)) %>%
+  filter(evalue <= 1e-15) %>%
+  droplevels() 
+
+hitsOfinterest %>%
+  View()
+
+# Get the unique accession IDs and annotations
+hitsOfinterest %>% 
+  dplyr::select(hit_id, hit_annot)
+
+# Just the annotations here
+# [1] "retinoblastoma-associated protein [Melopsittacus undulatus]"                                                      
+#  [2] "N-acetyl-beta-glucosaminyl-glycoprotein 4-beta-N-acetylgalactosaminyltransferase 1 [Melopsittacus undulatus]"     
+
+#  [4] "breast cancer type 1 susceptibility protein isoform X1 [Melopsittacus undulatus]"                                 
+                             
+#  [6] "toll-like receptor 4 [Melopsittacus undulatus]"                                                                   
+#  [7] "neuron navigator 2 isoform X4 [Melopsittacus undulatus]"                             
+
+```
+
+I searched these hit IDs on NCBI to loop up functionality but that wasn't very informative, so I used Google Scholar or UnitProt website > Complete GO annotation
+
+ - retinoblastoma-associated protein: cell proliferation, division (Henley & Dick 2012)
+ 
+  - N-acetyl-beta-glucosaminyl-glycoprotein 4-beta-N-acetylgalactosaminyltransferase 1: From UniProt, transferase activity, not much more info on this
+  
+  - breast cancer type 1 susceptibility protein isoform X1: ubiquitin-protein ligase involved in DNA repair, may also be a transcriptional regulator
+  
+  - toll-like receptor 4: I already knew this but confirmed on UniProt: innate immune response 
+  
+  - neuron navigator 2 isoforms: From UniProt, in humans these are involved with neuronal development, specifically development of sensory organs, also neurogenesis, locomotor behavior, sensory perception of smell and sound, vagus nerve and optic nerve development
+  
+Now need to figure out which population comparisons had these outliers.
+
+Read in the dataset of pre-processed neutral SNPs from the merged dataset. The number of individuals and loci is documented in BayeScan_post-processing.Rmd. This dataset contains loci in the same order of the indices returned by BayeScan.
+```{r echo = TRUE, eval = TRUE}
+
+struc <- read.table(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters_noPosControlDups.str"), skip = 1)
+# glimpse(struc)
+dim(struc) # 346 rows (173 individuals), 563 columns
+head(struc[, 1]) # Sample names contained in the first column
+head(struc[, 2]) # Population ID (single population) contained in second column
+names(struc)
+
+# Get the column headers
+
+# Read the first line of metadata, these are the column names
+col_nms <- readLines(file.path(file.path(res_path, "merged"), "merged_HWE_missingData_filters_noPosControlDups.str"), n = 1)
+col_nms
+
+# Split out the column headers into a vector, one element per header
+mrkrs <- strsplit(strsplit(col_nms, split = "\t")[[1]][3], split = "[[:space:]]")[[1]]
+head(mrkrs)
+length(mrkrs)
+
+# Get rid of the space that precedes the first locus column header
+mrkrs <- mrkrs[-which(mrkrs == "")]
+head(mrkrs)
+length(mrkrs)
+
+# Add the individual and population column headers that precede the locus column names
+col_nms <- c("indiv", "pop", mrkrs)
+head(col_nms)
+length(col_nms)
+
+# Add back the updated column names
+# Convert the indiv column to character
+# Looks good
+names(struc) <- col_nms
+struc$indiv <- as.character(struc$indiv)
+glimpse(struc[, 1:10])
+
+```
+
+Get outlier indices from BayeScan results.
+```{r echo = TRUE, eval = FALSE}
+
+# Path with BayeScan files
+bs_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BayeScan_mergedSNPs"
+
+# Source the BayeScan R function
+# I copied this into my external hard drive from BayeScan2.1/R functions/
+source(file.path(bs_path, "plot_R.r"))
+
+# Iterate over files and q-values to find the outliers
+res_files <- list.files(path = bs_path, pattern = "_fst.txt$")
+qvals <- c(0.2, 0.05)
+
+# 64 comparisons, including 5 randomizations
+length(res_files)
+
+i <- 1
+q <- 1
+outliers_df <- rbindlist(pblapply(1:length(res_files), function(i){
+  
+  tmp_df2 <- rbindlist(pblapply(1:length(qvals), function(q){
+    
+    comparison <- gsub("_fst.txt", "", res_files[i])
+    
+    tmp <- plot_bayescan(res = file.path(bs_path, res_files[i]), FDR = qvals[q])
+  
+    # Numeric indices of loci, in the same order as the original Structure file
+    ols <- tmp$outliers
+    
+    if(length(ols) > 0){
+      tmp_df <- data.frame(
+        comparison = comparison,
+        q_value = qvals[q],
+        outlier_indices = ols
+      )
+    } else {
+      tmp_df <- data.frame(
+        comparison = comparison,
+        q_value = qvals[q],
+        outlier_indices = NA
+      )
+    }
+
+    return(tmp_df)
+    
+  }))
+  
+  return(tmp_df2)
+  
+}))
+
+outliers_df
+
+```
+
+Get all the unique outlier indices.
+```{r echo = TRUE, eval = FALSE}
+
+o_inds <- outliers_df %>%
+  filter(!is.na(outlier_indices)) %>%
+  pull(outlier_indices) %>%
+  unique()
+
+mrkrs[o_inds]
+
+# Get the unique FASTA headers from the FASTA header used for blastx
+names(hitsOfinterest)
+
+locus_ids <- hitsOfinterest %>%
+  pull(outlier_fasta_headr) %>%
+  unique() %>%
+  as.character()
+
+# i <- 1
+blastx_locus_ids <- sapply(1:length(locus_ids), function(i){
+  gsub("CLocus_", "", strsplit(locus_ids[i], split = " ")[[1]][1])
+})
+blastx_locus_ids
+
+# Search for the blastx locus IDs in the locus names used as input for BayeScan
+blastx_inds <- grep(paste(paste("^", blastx_locus_ids, "_", sep = ""), collapse = "|"), mrkrs)
+
+# Confirming that these blastx_inds are consistent with the BayeScan indices
+mrkrs[blastx_inds]
+
+# Checking, looks good
+# blastx_inds %in% o_inds
+# mrkrs[o_inds][grep(paste(paste("^", blastx_locus_ids, "_", sep = ""), collapse = "|"), mrkrs[o_inds])]
+
+# Which comparisons had these indices present among outliers, and at what q-values?
+outliers_df %>%
+  filter(!is.na(outlier_indices)) %>%
+  filter(outlier_indices %in% blastx_inds)
+
+# For now, report only those at a q-value of 0.05
+outliers_df %>%
+  filter(!is.na(outlier_indices)) %>%
+  filter(q_value == 0.05) %>%
+  filter(outlier_indices %in% blastx_inds)
+
+```
+
+Read in the VCF file for outlier loci to extract the SNP type per RAD-tag, Also need the accesion ID. The total depth info is really useful too, need to report this for neutral loci certainly.
+```{r echo = TRUE, eval = FALSE}
+
+tmp_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks/merged/fstats_regions_outlierSNPs"
+
+vcf_outliers <- read.vcfR(file.path(tmp_path, "populations.snps.vcf"))
+str(vcf_outliers)
+
+vcf_outliers@meta
+
+# This object contains the Reference and Alternate SNP indo
+vcf_outliers@fix
+
+str(vcf_outliers@gt)
+
+# Reference allele per locus
+ref <- vcf_outliers@fix[grep(paste(paste("^", blastx_locus_ids, ":", sep = ""), collapse = "|"), vcf_outliers@fix[, "ID"]), "REF"]
+
+# ALternative allele per locus
+alt <- vcf_outliers@fix[grep(paste(paste("^", blastx_locus_ids, ":", sep = ""), collapse = "|"), vcf_outliers@fix[, "ID"]), "ALT"]
+
+```
+
+Combine this metadata in a single data frame to make a table for the main manuscript.
+```{r echo = TRUE, eval = FALSE}
+
+# Make a data frame with the locus IDs, functionality, and index
+mrkrs[blastx_inds]
+
+# Locus IDs and functionality from above:
+# 302: retinoblastoma-associated protein
+# 395: N-acetyl-beta-glucosaminyl-glycoprotein 4-beta-N-acetylgalactosaminyltransferase 1
+# 1117: breast cancer type 1 susceptibility protein isoform X1
+# 3617: toll-like receptor 4
+# 3988: neuron navigator 2 isoform X4
+
+annot_df <- data.frame(outlier_indices = blastx_inds) %>%
+  dplyr::mutate(
+    locus_ids = mrkrs[blastx_inds],
+    SNP = paste(ref, alt, sep = "/"), 
+    acc_id =c("XP_005147720.2", "XP_033917501.1", "XP_030901062.1", "XP_030901749.2", "XP_005150625.2"),
+    annot = c("retinoblastoma-associated protein", "N-acetyl-beta-glucosaminyl-glycoprotein 4-beta-N-acetylgalactosaminyltransferase 1", "breast cancer type 1 susceptibility protein isoform X1", "toll-like receptor 4", "neuron navigator 2 isoform X4"),
+    evalues = c(2.94267e-23, 1.32595e-18, 2.42231e-17, 3.94778e-24, 1.98665e-23)
+  )
+
+annot_df    
+
+# Join with the BayeScan results to get population comparison info
+outliers_df %>%
+  filter(!is.na(outlier_indices)) %>%
+  filter(q_value == 0.05) %>%
+  filter(outlier_indices %in% blastx_inds) %>%
+  inner_join(
+    annot_df,
+    by = "outlier_indices"
+  ) %>%
+  arrange(-desc(outlier_indices)) %>%
+  View()
+
+```
+
+Also get and the locus FST values from the full set of summary statistics for all 561 merged SNPs after HWE filtering, which will allow me to calculate the average FST across all these loci as in Lemay and Russello 2015. See notes below, this may well depend on the population comparisons that displayed the given outlier, and may not be possible to calculate without additional Stacks::populations runs (e.g. ILLI versus Uruguay).
+```{r echo = TRUE, eval = FALSE}
+
+# Stacks::populations was run with all neutral and outlier loci, individuals were split into regions here...actually, this needs to be rerun with individuals in a single population, to get FST by locus without population comparisons inthe file populations.fst.tsv...actually, that can't be done because FST is pairwise and therefore requires some sort of population comparison in order for tje value to be calculated
+# tmp_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/stacks/merged/fstats_regions"
+
+```
+
+# blastx to full nr database
+
+I also got blastx results from blasting outlier RAD-tags to the full nr database. As above, many RAD-tags did not have any hits, but some did, and these were overall very similar to the hits obtained above to the budgie annotations online.
+```{r echo = TRUE, eval = TRUE}
+
+# Read in the XML as an XML
+xml_res <- xmlParse(file.path(path, "outlier_RADtags_blastx2nr.xml"))
+
+# Convert to a list
+blastx_res <- xmlToList(xml_res)
+glimpse(blastx_res)
+length(blastx_res)
+
+blastx_res[[8]] # Parameters used in the call to blastx
+blastx_res[[9]] # The last element contains the list of hits
+length(blastx_res[[9]]) # One list per outlier locus
+str(blastx_res[[9]][[1]])
+length(blastx_res[[9]][[1]])
+
+# Iterate over the list of hits and write out results of interest to a data frame
+# In doing so, assess the list of multiple hits per outlier locus, and only retain multiple hits if e-values are less than an order of magnitude from the top hit
+hit_list <- blastx_res[[9]]
+
+# Do any loci have more than one hit? Yes
+which(sapply(blastx_res[[9]], function(X){
+  length(X$`Iteration_hits`)
+}) > 1)
+
+i <- 1 # no hits
+# i <- 16 # hits present
+# z <- 1
+blastx_df <- rbindlist(pblapply(1:length(hit_list), function(i){
+  
+  # cat(paste("i = ", i, "\n"))
+  
+  tmp_list <- hit_list[[i]]
+  # str(tmp_list)
+  # names(tmp_list)
+  
+  # FASTA header for the outlier locus
+  outlier_fasta_headr <- tmp_list$`Iteration_query-def`
+  
+  # Only proceed with extracting metadata if hits found
+  # Here, when no hits are found, the element called "Iteration_hits" has the value "\n"
+  if(length(tmp_list$`Iteration_hits`) > 1){
+    
+    # List of hits
+    # str(tmp_list$`Iteration_hits`)
+    
+    tmp_hit_list <- tmp_list$`Iteration_hits`
+    
+    # Iterate over hits to extract information
+    tmp_df2 <- rbindlist(lapply(1:length(tmp_hit_list), function(z){
+      
+      tmp_hit_list2 <- tmp_hit_list[[z]]
+      
+      # Hit number
+      hit_num <- tmp_hit_list2$Hit_num
+      
+      # Hit ID
+      hit_id <- tmp_hit_list2$Hit_id
+      
+      # Hit annotation
+      hit_annot <- tmp_hit_list2$Hit_def
+  
+      # Hit accession number
+      hit_acc_num <- tmp_hit_list2$Hit_accession
+  
+      # E-value for the given hit
+      evalue <- as.numeric(tmp_hit_list2$Hit_hsps$Hsp$Hsp_evalue)
+  
+      # Coordinates for the given hit
+      hit_start <- as.numeric(tmp_hit_list2$Hit_hsps$Hsp$`Hsp_hit-from`)
+      hit_end <- as.numeric(tmp_hit_list2$Hit_hsps$Hsp$`Hsp_hit-to`)
+  
+      # If the hit end coordinate is larger than the start coordinate, then I'm assuming this is the forward or positive strand
+      strand <- ifelse(hit_start < hit_end, "+", "-")
+    
+      tmp_df <- data.frame(outlier_fasta_headr = outlier_fasta_headr) %>%
+        dplyr::mutate(
+          hit_num = hit_num,
+          hit_id = hit_id,
+          hit_annot = hit_annot,
+          evalue = evalue,
+          hit_start = hit_start,
+          hit_end = hit_end,
+          strand = strand 
+        )
+      
+      return(tmp_df)
+  
+    }))
+   
+    # If no hits, just return the locus info
+  } else {
+    
+    tmp_df2 <- data.frame(outlier_fasta_headr = outlier_fasta_headr) %>%
+        dplyr::mutate(
+          hit_num = NA,
+          hit_id = NA,
+          hit_annot = NA,
+          evalue = NA,
+          hit_start = NA,
+          hit_end = NA,
+          strand = NA 
+        )
+   
+  }
+  
+  return(tmp_df2)
+
+  
+}))
+
+glimpse(blastx_df)
+
+```
+
+Which outlier loci had hits to the genome, and what functional regions are represented?
+```{r echo = TRUE, eval = TRUE}
+
+# 8 outlier tags had 5 hits each to protein annotations
+blastx_df %>%
+  filter(!is.na(hit_num)) %>%
+  droplevels() %>%
+  group_by(outlier_fasta_headr) %>%
+  dplyr::summarise(
+    n_hits = length(hit_num)
+  )
+
+# How many loci had hits with the e-value threshold I'm currently using of 1e-15?
+# All 8 loci, all 5 hits except locus 1117, which had a single hit at this evalue threshold 
+blastx_df %>%
+  filter(!is.na(hit_num)) %>%
+  filter(evalue <= 1e-15) %>%
+  droplevels() %>%
+  group_by(outlier_fasta_headr) %>%
+  dplyr::summarise(
+    n_hits = length(hit_num)
+  )
+
+# These are the hits I'm interested in reporting for the thesis chapter
+# I took the top hit per locus
+hitsOfinterest <- blastx_df %>%
+  filter(!is.na(hit_num)) %>%
+  filter(evalue <= 1e-15) %>%
+  droplevels() 
+
+# Many of these are very similar to the hits I found earlier, with at least two new ones, and hits to more parrots and other avian species
+# Also includes Chromodomain-helicase-DNA-binding protein 9, which may be a chromatin remodeling protein and is thought to activate PPARA (e.g. it's a transciptional coactivator of this protein), which regulates hundreds of other genes related to lipid metabolism, and may also be related to circadian clocks: https://www.uniprot.org/uniprot/Q3L8U1
+hitsOfinterest %>%
+  View()
+
+# Get the unique accession IDs and annotations
+hitsOfinterest %>% 
+  dplyr::select(hit_id, hit_annot)
+
+# Next, need to get the same metadata as above for the other outliers 
+
+```

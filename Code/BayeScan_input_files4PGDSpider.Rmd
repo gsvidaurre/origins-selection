@@ -11,7 +11,7 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 ```
 
-Purpose: Subset the Structure file of the HWE and missing data filtered merged SNPs to make versions representing all pairwise population comparisons to be executed in BayeScan. The files generated in this script will be in Structure format, and will be converted to BayeScan formt using a script to execute PGDSpider.
+Purpose: Subset the Structure file of the HWE and missing data filtered merged SNPs to make versions representing all pairwise population comparisons to be executed in BayeScan. The files generated in this script will be in Structure format, and will be converted to BayeScan formt using a script to execute PGDSpider. In the end, I didn't use PGDSpider because it wasn't possible on my local machine nor on Discovery, so I relied on a function I'd previously written in analysis with the single-end libraries. I had also previously tested this function against PGDSpider, and found that files created using my function yielded the same Bayescan results as files created with PGDSpider., 
 
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
@@ -1373,7 +1373,6 @@ Structure2Bayescan <- function(file_nms, n.pops, fpath){
 
 
 # Testing
-# file_nms <- "BS_01_AllInvasiveVersusNative.str"
 # z <- 1
 # fpath <- file.path(out_path)
 # n.pops <- 2

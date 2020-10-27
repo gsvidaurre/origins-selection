@@ -71,6 +71,9 @@ res_01
 res_files <- list.files(path = out_path, pattern = "_fst.txt$")
 qvals <- c(0.2, 0.05)
 
+# 64 comparisons, including 5 randomizations
+length(res_files)
+
 outliers_df <- rbindlist(pblapply(1:length(res_files), function(i){
   
   tmp_df2 <- rbindlist(pblapply(1:length(qvals), function(q){
@@ -215,6 +218,23 @@ outliers_df %>%
     ),
     by = c("max_n" = "n_outliers")
   )
+
+```
+
+Checking out the number of outliers across comparisons at q-value of 0.2.
+```{r echo = TRUE, eval = TRUE}
+
+outliers_df %>%
+  filter(!grepl("Random", comparison)) %>%
+  filter(!is.na(outlier_indices)) %>%
+  group_by(comparison) %>%
+  filter(q_value == 0.05) %>%
+  dplyr::summarise(
+    n_outliers = length(outlier_indices)
+  ) %>%
+  arrange(desc(n_outliers)) %>%
+  View()
+
 
 ```
 

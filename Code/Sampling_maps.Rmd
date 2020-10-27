@@ -1,0 +1,324 @@
+---
+title: "Sampling map"
+author: "Grace Smith-Vidaurre"
+date: "October 18, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Make sampling maps for RAD-seq thesis chapter manuscript.
+
+```{r echo = TRUE, eval = TRUE}
+
+rm(list = ls())
+
+# "shapefiles", "broom", "geosphere", "GISTools",
+X <- c("ggmap", "scales", "RColorBrewer", "rgeos", "rgdal", "sp", "pbapply", "shapefiles", "maps", "mapdata", "maptools", "measurements", "data.table", "grid", "gridExtra", "gtable", "plotrix", "gplots", "ggsn", "png", "colorspace", "grDevices", "ggplot2", "tidyverse")
+
+invisible(lapply(X, library, character.only = TRUE))
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Which sampling sites do not have geographic coordinates?
+```{r echo = TRUE, eval = FALSE}
+
+meta_dats %>%
+  filter(is.na(Latitude_DD)) %>%
+  pull(Site_Code) %>%
+  unique()
+
+```
+
+Which sampling sites do have geographic coordinates? Note that some Connecticut (CNCT) and all Entre Rios (ERIO) samples did have coordinates, thanks to data passed on by Mike Russello.
+```{r echo = TRUE, eval = FALSE}
+
+meta_dats %>%
+  filter(!is.na(Latitude_DD)) %>%
+  pull(Site_Code) %>%
+  unique()
+
+```
+
+Need to obtain geographic coordinates for these sites. Pull these from Google using the ggmap package.  
+```{r echo = TRUE, eval = FALSE}
+
+?mutate_geocode
+
+# Make a data frame for geocoding with the sampling site location and country
+geo_df <- meta_dats %>%
+  filter(is.na(Latitude_DD)) %>%
+  dplyr::mutate(
+    Loc = paste(Sampling_Site, Country, sep = ", ")  
+  ) %>%
+  dplyr::select(Loc) %>%
+  distinct()
+
+geo_df
+
+# Have to register on Google (AP key) to get this...and might need to provide a credit card to do so.
+?register_google
+
+geo_coords_df <- mutate_geocode(geo_df, Loc)
+
+```
+
+
+
+```{r echo = TRUE, eval = FALSE}
+
+# 2. Read in trapping data and geographic coordinates
+
+# waypts <- read.csv(file.path(path, "all_waypoints_manualedit.csv"), header = TRUE)
+# str(waypts)
+# 
+# unique(waypts$Name)
+
+smpls <- read.csv(file.path(path, "ParakeetBandingData_MASTER_GSV_28Nov17.csv"), header = TRUE)
+str(smpls)
+unique(smpls$Site.ID)
+
+# 3. Merge the correct site coordinates with trapping data
+
+# Making a match data frame manually, this needs to be fixed later
+coords_df <- data.frame(site = c("ELGE", "SOLE", "SEMI-3", "EMBR", "1145", "CHAC", "PEIX", "BCAR", "1135", "BAGU"), lat = c(-34.427667, -34.425267, -34.3280918, -34.4444814, -34.3770252, -34.412789, -34.764865, -34.788002, -34.352689, -34.848051), lon = c(-57.812129, -57.743541, -57.6802826, -57.7288038, -57.5021464, -57.843938, -56.279224, -56.223475, -57.402123, -56.383672), department = c(rep("Colonia", 6), "Montevideo", "Montevideo", "Colonia", "Montevideo"))
+
+# make site codes consistent
+smpls$Site.ID <- str_replace(smpls$Site.ID, pattern = "1-145", replacement = "1145")
+unique(smpls$Site.ID)
+
+# merge data frames
+smpls <- smpls %>%
+  left_join(
+    coords_df,
+    by = c("Site.ID" = "site")
+  )
+str(smpls)
+# View(smpls)
+
+# 4. Make a map of genetic sampling areas
+
+# Uruguay county border
+URY_adm0 <- readOGR(dsn = path, layer = "URY_adm0")
+slotNames(URY_adm0)
+proj4string(URY_adm0)
+
+# Uruguay county borders
+URY_adm1 <- readOGR(dsn = path, layer = "URY_adm1")
+slotNames(URY_adm1)
+proj4string(URY_adm1)
+
+# merge the URY county polgyons into one
+str(URY_adm1@data)
+m <- raster::union(URY_adm1[URY_adm1$NAME_1 == "Colonia", ], URY_adm1[URY_adm1$NAME_1 == "San José", ])
+m2 <- raster::union(m, URY_adm1[URY_adm1$NAME_1 == "Canelones", ])
+m3 <- raster::union(m2, URY_adm1[URY_adm1$NAME_1 == "Montevideo", ])
+m4 <- raster::union(m3, URY_adm1[URY_adm1$NAME_1 == "Maldonado", ])
+m5 <- raster::union(m4, URY_adm1[URY_adm1$NAME_1 == "Rocha", ])
+m6 <- raster::union(m5, URY_adm1[URY_adm1$NAME_1 == "Salto", ])
+
+# Read in Argentina and Brazil country borders
+a <- readRDS(file.path(path, "gadm36_ARG_0_sp.rds"))
+b <- readRDS(file.path(path, "gadm36_BRA_0_sp.rds"))
+
+# order departments to match the geographic transect
+smpls$department <- factor(smpls$department, levels = c("Colonia", "San Jose", "Salto", "Canelones", "Montevideo", "Maldonado", "Rocha"))
+smpls$region <- smpls$department
+
+smpls$region <- gsub("Canelones|Montevideo", "Canelones & Montevideo", smpls$region)
+smpls$region <- factor(smpls$region, levels = c("Colonia", "San Jose", "Salto", "Canelones & Montevideo", "Maldonado", "Rocha"))
+
+n <- 12
+pie(rep(1,n), col = heat.colors(n))
+
+# make colors for water and land fill colors
+wfl <- gray.colors(n, alpha = 0.5)[12]
+lfl <- "white"
+
+# make sure colors sync across all figures
+# ggplot recognizes unicode values for new symbols
+# use these to encode department by both shapes and colors for greater clarity
+fill.cols <- c(topo.colors(n, alpha = 0.75)[2], topo.colors(n, alpha = 0.9)[4], terrain.colors(n, alpha = 0.9)[1], gray.colors(n, alpha = 0.9)[2], gray.colors(n, alpha = 0.9)[2], heat.colors(n, alpha = 0.9)[6], heat.colors(n, alpha = 0.9)[1])
+# shps <- c("\u25CF", "\u25C6", "\u25BC", "\u25A0", "\u25C4", "\u25B2")
+# shps <- c(-as.hexmode("25CF"), -as.hexmode("25C6"), -as.hexmode("25BC"), -as.hexmode("25A0"), -as.hexmode("25C4"), -as.hexmode("25B2"))
+cols <- c(rep("black", 5), heat.colors(n, alpha = 0.9)[6], "black")
+
+shps <- c(21, 23, 25, 22, -as.hexmode("25C4"), 24)
+sizes <- c(12, 12, 12, 12, 17, 12)
+
+# library(Hmisc)
+# show.col()
+# show.pch()
+
+TestUnicode <- function(start="25a0", end="25ff", ...)
+{
+  nstart <- as.hexmode(start)
+  nend <- as.hexmode(end)
+  r <- nstart:nend
+  s <- ceiling(sqrt(length(r)))
+  par(pty="s")
+  plot(c(-1,(s)), c(-1,(s)), type="n", xlab="", ylab="",
+       xaxs="i", yaxs="i")
+  grid(s+1, s+1, lty=1)
+  for(i in seq(r)) {
+    try(points(i%%s, i%/%s, pch=-1*r[i],...))
+  }
+}
+
+TestUnicode()
+dev.off()
+
+bufx <- 0.6
+bufy <- 0.3
+
+# Use these coordinates to make the same zoom map as in recordings figures
+wp <- read.csv(file.path(path, "recording_waypoints.csv"), header = TRUE)
+str(wp)
+
+jpeg(file.path(file.path(gpath, "Uruguay_genetic_sampling_base_map_noscale.jpeg")), width = 27, height = 30, units = "cm", res = 300)
+
+gg_base <- ggplot() +
+  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
+               fill = lfl, size = 1, data = URY_adm0) + 
+  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
+               fill = lfl, size = 0.6, data = a) + 
+  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
+               fill = lfl, size = 0.6, data = b) + 
+  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
+               fill = lfl, size = 0.6, data = m6) + 
+  geom_point(aes(x = lon, y = lat, color = department, shape = region, size = region, fill = department), data = smpls) +
+  scale_colour_manual(values = cols) + 
+  scale_fill_manual(values = fill.cols) +
+  scale_shape_manual(values = shps) + 
+  scale_size_manual(values = sizes) + guides(color = FALSE, shape = FALSE, size = FALSE, fill = FALSE) +
+  xlab("") + ylab("") + 
+  theme(panel.background = element_rect(fill = wfl), plot.background = element_rect(fill = lfl), plot.title = element_text(size = 25, hjust = 0.5),
+        panel.grid.major = element_line(size = 1, colour = wfl), 
+        panel.grid.minor = element_line(size = 0.75, colour = wfl), 
+        axis.line = element_line(size = 1.5, colour = "black"), 
+        axis.title = element_text(size = 30), 
+        axis.text = element_text(size = 30)) + 
+  # coord_cartesian(xlim = c(min(smpls$lon) - bufx, max(smpls$lon) + bufx), y = c(min(smpls$lat) - bufy, max(smpls$lat) + bufy*3))
+  coord_cartesian(xlim = c(min(wp$Longitude) - bufx, max(wp$Longitude) + bufx), y = c(min(wp$Latitude) - bufy, max(wp$Latitude) + bufy*3))
+
+# gg_base
+
+# gg_base <- gg_base + scale_bar(lon = -54.5, lat = -30.5,
+#                                distance_lon = 50, distance_lat = 10, distance_legend = 50, 
+#                                dist_unit = "km", orientation = FALSE, legend_size = 8)
+
+
+buf <- 0.1
+symbol <- 1
+symbol <- sprintf("%02.f", symbol)
+symbol <- readPNG(paste0(system.file("symbols", package = "ggsn"), 
+                         "/", symbol, ".png"))
+symbol <- rasterGrob(symbol, interpolate = TRUE)
+gg_base <- gg_base + annotation_custom(grob = symbol, xmin = max(wp$Longitude) - 1.5, xmax = max(wp$Longitude) - buf, 
+                                       ymin = max(wp$Latitude) - buf*4, ymax = max(wp$Latitude))
+
+gg_base
+
+dev.off()
+
+
+# 5. Next, make a smaller inset map of the southwestern coast
+
+buf1 <- 0.5
+buf2 <- 0.05
+
+
+jpeg(file.path(gpath, "Uruguay_sampling_inset_map_noscalebar.jpeg"), width = 25, height = 10, units = "cm", res = 300)
+
+# [URY_adm1$NAME_1 == "Colonia"| URY_adm1$NAME_1 == "Montevideo", ]
+
+gg_inset <- ggplot() +
+  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
+               fill = "white", size = 0.5, data = URY_adm1[grepl("Colonia|San|Canelones|Montevideo|Maldonado|Rocha", URY_adm1$NAME_1)]) + 
+  geom_point(aes(x = lon, y = lat, color = department, shape = region, size = region, fill = department), data = smpls, size = 6) +
+  scale_colour_manual(values = cols) + 
+  scale_fill_manual(values = fill.cols) +
+  scale_shape_manual(values = shps) + 
+  scale_size_manual(values = sizes) +
+  xlab("") + ylab("") + 
+  theme(panel.background = element_rect(fill = wfl), plot.background = element_rect(fill = "white"), plot.title = element_text(size = 25, hjust = 0.5),
+        panel.grid.major = element_line(size = 1, colour = "white"), 
+        panel.grid.minor = element_line(size = 0.75, colour = "white"), 
+        axis.line = element_line(size = 0.75, colour = "black"), 
+        axis.title = element_text(size = 32), 
+        axis.text = element_text(size = 15)) + 
+  
+  coord_cartesian(xlim = c(min(wp$Longitude) - bufx, -55.5), y = c(-35.0, -34.2)) +
+  
+  # coord_cartesian(xlim = c(min(smpls$lon) - buf1, max(smpls$lon) + buf1), ylim = c(min(smpls$lat) - buf2, max(smpls$lat) + buf2)) +
+  guides(color = FALSE, shape = FALSE)
+
+gg_inset
+
+dev.off()
+
+
+# 6. Make a general worldwide RAD sampling map with state/country polygons filled in
+n <- 12
+states <- map_data("state") %>%
+  filter(region %in% c("washington", "illinois", "florida", "connecticut"))
+str(states)
+
+spain <- map_data("world") %>%
+  filter(region %in% c("Spain"))
+str(spain)
+
+arg <- map_data("world") %>%
+  filter(region %in% c("Argentina"))
+str(arg)
+
+world <- map_data("world")
+
+gg_wrld <- ggplot() +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray65") +
+  geom_polygon(data = states, aes(x = long, y = lat, group = group), fill = heat.colors(n)[5]) +
+  geom_polygon(data = spain, aes(x = long, y = lat, group = group), fill = heat.colors(n)[5]) +
+  geom_polygon(data = arg, aes(x = long, y = lat, group = group), fill = topo.colors(n)[3]) +
+  xlab("Longitude (Decimal Degrees)") + ylab("Latitude (Decimal Degrees)") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 18), axis.text = element_text(size = 14))
+
+gg_wrld <- gg_wrld +
+  scalebar(x.min = 0, x.max = 50, y.min = -50, y.max = -20, dist = 1500, dd2km = TRUE, model = "WGS84", height = 0.15, st.size = 3.5, st.dist = 0.15)
+
+gg_wrld
+
+
+buf <- 0.1
+symbol <- 1
+symbol <- sprintf("%02.f", symbol)
+symbol <- readPNG(paste0(system.file("symbols", package = "ggsn"), 
+                         "/", symbol, ".png"))
+symbol <- rasterGrob(symbol, interpolate = TRUE)
+gg_wrld <- gg_wrld + annotation_custom(grob = symbol, xmin = -180, xmax = -130, 
+                                       ymin = -10, ymax = 10)
+
+gg_wrld
+
+ggsave(file.path(gpath, "RAD-seq_Round1_WorldMap.jpeg"), units = "cm", width = 26, height = 14, dpi = 200)  
+
+
+
+
+```

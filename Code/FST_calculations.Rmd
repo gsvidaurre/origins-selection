@@ -51,6 +51,23 @@ str(neutral_snps)
 
 str(neutral_snps@tab)
 
+# Checking the number of individuals across sampling sites
+tmp_df <- data.frame(indivs = dimnames(neutral_snps@tab)[[1]]) %>%
+  inner_join(
+    meta_dats %>%
+      dplyr::select(Sample_Name, Site_Code),
+    by = c("indivs" = "Sample_Name")
+  )
+dim(tmp_df)
+
+# BAGU, BAIR, and SEVI should not be reported in FST sampling site tables due to having less than 3 individuals each
+tmp_df %>%
+  group_by(Site_Code) %>%
+  dplyr::summarise(
+    n_indivs = length(indivs)
+  ) %>%
+  filter(n_indivs < 3)
+
 ```
 
 Get pairwise Fst values with the BEDASSLE package. Here, using sampling sites as populations. Just need to pass the unbiased FST function a matrix with populations in rows and biallelic loci in columns, each cell contains the number of times allele "1" was observed per population. "1" is arbitrary but must be the same across populations. The second matrix is of sample sizes, in which each cell is the nunber of chromosomes sampled per locus and population...e.g the number of diploid individuals.

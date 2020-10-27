@@ -203,7 +203,7 @@ invisible(pblapply(1:nrow(struc2), function(i){
 
 ### SE SNPs, additional filtering
 
-Filter out individuals with > 80% missing data, and any loci with > 80% missing data for any sampling location.
+Filter out individuals with missing data, and any loci with missing data for any sampling location.
 ```{r echo = TRUE, eval = FALSE}
 
 # Find the percentage missing data per individual
@@ -513,7 +513,7 @@ rm(list = "struc2")
 
 ### PE SNPs, additional filtering
 
-Filter out individuals with > 80% missing data, and any loci with > 80% missing data for any sampling location.
+Filter out individuals with missing data, and any loci with missing data for any sampling location. See % missing data used below.
 ```{r echo = TRUE, eval = FALSE}
 
 # Find the percentage missing data per individual
@@ -833,7 +833,7 @@ rm(list = "struc2")
 
 ### Merged SNPs, additional filtering
 
-Filter out individuals with > 80% missing data, and any loci with > 80% missing data for any sampling location.
+Filter out individuals with certain levels of missing data, and any loci with certain levels of missing data for any sampling location.
 ```{r echo = TRUE, eval = FALSE}
 
 # Find the percentage missing data per individual

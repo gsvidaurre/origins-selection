@@ -11,7 +11,6 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 ```
 
-Purpose: Make exploratory visuals of population genetic structure with DAPC (discriminant analysis of principal components) with the three sets of HWE filtered SNPs.
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
 rm(list = ls())
