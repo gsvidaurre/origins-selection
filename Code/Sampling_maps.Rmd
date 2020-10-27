@@ -18,11 +18,11 @@ Purpose: Make sampling maps for RAD-seq thesis chapter manuscript.
 rm(list = ls())
 
 # "shapefiles", "broom", "geosphere", "GISTools",
-X <- c("ggmap", "scales", "RColorBrewer", "rgeos", "rgdal", "sp", "pbapply", "shapefiles", "maps", "mapdata", "maptools", "measurements", "data.table", "grid", "gridExtra", "gtable", "plotrix", "gplots", "ggsn", "png", "colorspace", "grDevices", "ggplot2", "tidyverse")
+X <- c("ggmap", "scales", "RColorBrewer", "rgeos", "rgdal", "sp", "pbapply", "shapefiles", "maps", "mapdata", "maptools", "measurements", "data.table", "grid", "gridExtra", "gtable", "plotrix", "gplots", "ggsn", "png", "colorspace", "grDevices", "ggplot2", "tidyverse", "openxlsx")
 
 invisible(lapply(X, library, character.only = TRUE))
 
-gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/FIGURES"
 
 xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
 
@@ -36,7 +36,7 @@ glimpse(meta_dats)
 
 ```
 
-Which sampling sites do not have geographic coordinates?
+Which sampling sites do not have geographic coordinates? Just BAIR after manually entering coordinates for sites that didn't have these, BAIR birds were sampled in Buenos Aires but obtained from further south.
 ```{r echo = TRUE, eval = FALSE}
 
 meta_dats %>%
@@ -46,7 +46,7 @@ meta_dats %>%
 
 ```
 
-Which sampling sites do have geographic coordinates? Note that some Connecticut (CNCT) and all Entre Rios (ERIO) samples did have coordinates, thanks to data passed on by Mike Russello.
+Which sampling sites do have geographic coordinates? Note that some Connecticut (CNCT) and all Entre Rios (ERIO) samples did have coordinates prior to my own geocoding, thanks to data passed on by Mike Russello.
 ```{r echo = TRUE, eval = FALSE}
 
 meta_dats %>%
@@ -56,61 +56,240 @@ meta_dats %>%
 
 ```
 
-Need to obtain geographic coordinates for these sites. Pull these from Google using the ggmap package.  
+Make a general worldwide RAD sampling map. Consider coloring country boundaries for emphasis.
 ```{r echo = TRUE, eval = FALSE}
 
-?mutate_geocode
+us <- map_data("world") %>%
+  filter(region %in% c("USA")) %>%
+  filter(!subregion %in% c("Hawaii", "Alaska", "Guam", "Puerto Rico"))
+str(us)
 
-# Make a data frame for geocoding with the sampling site location and country
-geo_df <- meta_dats %>%
-  filter(is.na(Latitude_DD)) %>%
-  dplyr::mutate(
-    Loc = paste(Sampling_Site, Country, sep = ", ")  
-  ) %>%
-  dplyr::select(Loc) %>%
-  distinct()
+states <- map_data("state") %>%
+  filter(region %in% c("washington", "illinois", "florida", "connecticut"))
+str(states)
 
-geo_df
+spain <- map_data("world") %>%
+  filter(region %in% c("Spain"))
+str(spain)
 
-# Have to register on Google (AP key) to get this...and might need to provide a credit card to do so.
-?register_google
+canaria <- map_data("world") %>%
+  filter(region %in% c("Canary Islands")) %>%
+  filter(subregion == "Gran Canaria")
+str(canaria)
 
-geo_coords_df <- mutate_geocode(geo_df, Loc)
+ury <- map_data("world") %>%
+  filter(region %in% c("Uruguay"))
+str(ury)
+
+arg <- map_data("world") %>%
+  filter(region %in% c("Argentina"))
+str(arg)
+
+world <- map_data("world")
+glimpse(world)
+
+nat_bord <- c("navy")
+inv_bord <- c("darkgoldenrod1")
+
+gg_wrld <- ggplot(data = world) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray75") +
+  # contiguous US border
+  geom_polygon(data = us, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
+  geom_polygon(data = spain, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
+  geom_polygon(data = canaria, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
+  geom_polygon(data = ury, aes(x = long, y = lat, group = group), color = nat_bord, fill = alpha(nat_bord, 0.5)) +
+  geom_polygon(data = arg, aes(x = long, y = lat, group = group), color = nat_bord, fill = alpha(nat_bord, 0.5)) +
+  xlab("Longitude (Decimal Degrees)") + ylab("Latitude (Decimal Degrees)") +
+  coord_cartesian(xlim = c(-170, 90)) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size = 18), 
+    axis.text = element_text(size = 14),
+    panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.75)
+ )
+
+gg_wrld
+
+gg_wrld <- gg_wrld +
+  ggsn::scalebar(data = NULL, x.min = 0, x.max = 50, y.min = -50, y.max = -20, dist = 1500, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.10, st.size = 3.5, st.dist = 0.10, border.size = 0.15)
+
+gg_wrld
+
+
+buf <- 0.1
+symbol <- 1
+symbol <- sprintf("%02.f", symbol)
+symbol <- readPNG(paste0(system.file("symbols", package = "ggsn"), 
+                         "/", symbol, ".png"))
+symbol <- rasterGrob(symbol, interpolate = TRUE)
+gg_wrld <- gg_wrld + annotation_custom(grob = symbol, xmin = -150, xmax = -135, 
+                                       ymin = 35, ymax = 50)
+
+gg_wrld
+
+ggsave(file.path(gpath, "OriginsSelection_Figure1_WorldMap.tiff"), units = "in", width = 8.5, height = 6, dpi = 300)
+
+dev.off()
 
 ```
 
+Now need to make inset maps. Each map should have points, and labels for sampling sites above these.
 
-
+Uruguay and Argentina.
 ```{r echo = TRUE, eval = FALSE}
 
-# 2. Read in trapping data and geographic coordinates
+tmp_pts <- meta_dats %>%
+  filter(Country %in% c("Uruguay", "Argentina")) %>%
+  filter(!is.na(Latitude_DD)) %>%
+  dplyr::select(Site_Code, Latitude_DD, Longitude_DD) %>%
+  distinct()
+glimpse(tmp_pts)
 
-# waypts <- read.csv(file.path(path, "all_waypoints_manualedit.csv"), header = TRUE)
-# str(waypts)
-# 
-# unique(waypts$Name)
+ury_arg_inset <- ggplot(data = tmp_pts) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray85") +
+  geom_polygon(data = ury, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
+  geom_polygon(data = arg, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
+  geom_point(data = tmp_pts, aes(x = Longitude_DD, y = Latitude_DD), fill = alpha(nat_bord, 1), shape = 21, size = 2) +
+  xlab("") + ylab("") +
+  coord_cartesian(xlim = c(-65, -53), ylim = c(-40, -24)) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size = 12), 
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
+    panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.75)
+   )
 
-smpls <- read.csv(file.path(path, "ParakeetBandingData_MASTER_GSV_28Nov17.csv"), header = TRUE)
-str(smpls)
-unique(smpls$Site.ID)
+ury_arg_inset
 
-# 3. Merge the correct site coordinates with trapping data
+ury_arg_inset <- ury_arg_inset +
+  ggsn::scalebar(data = NULL, x.min = -75, x.max = -54, y.min = -39.5, y.max = -35, dist = 200, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.1, border.size = 0.15)
 
-# Making a match data frame manually, this needs to be fixed later
-coords_df <- data.frame(site = c("ELGE", "SOLE", "SEMI-3", "EMBR", "1145", "CHAC", "PEIX", "BCAR", "1135", "BAGU"), lat = c(-34.427667, -34.425267, -34.3280918, -34.4444814, -34.3770252, -34.412789, -34.764865, -34.788002, -34.352689, -34.848051), lon = c(-57.812129, -57.743541, -57.6802826, -57.7288038, -57.5021464, -57.843938, -56.279224, -56.223475, -57.402123, -56.383672), department = c(rep("Colonia", 6), "Montevideo", "Montevideo", "Colonia", "Montevideo"))
+ury_arg_inset
 
-# make site codes consistent
-smpls$Site.ID <- str_replace(smpls$Site.ID, pattern = "1-145", replacement = "1145")
-unique(smpls$Site.ID)
+ggsave(file.path(gpath, "OriginsSelection_Figure1_NativeInset.tiff"), units = "in", width = 2.7, height = 2.75, dpi = 300)
 
-# merge data frames
-smpls <- smpls %>%
-  left_join(
-    coords_df,
-    by = c("Site.ID" = "site")
-  )
-str(smpls)
-# View(smpls)
+dev.off()
+
+```
+
+Just Uruguay, include exporter's aviaries....
+```{r echo = TRUE, eval = FALSE}
+
+tmp_pts <- meta_dats %>%
+  filter(Country %in% c("Uruguay", "Argentina")) %>%
+  filter(!is.na(Latitude_DD)) %>%
+  dplyr::select(Site_Code, Latitude_DD, Longitude_DD) %>%
+  distinct()
+glimpse(tmp_pts)
+
+ury_inset <- ggplot(data = tmp_pts) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray85") +
+  geom_polygon(data = ury, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
+  geom_point(data = tmp_pts, aes(x = Longitude_DD, y = Latitude_DD), fill = alpha(nat_bord, 1), shape = 21, size = 2) +
+  xlab("") + ylab("") +
+  coord_cartesian(xlim = c(-65, -53), ylim = c(-40, -24)) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size = 12), 
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
+    panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.75)
+   )
+
+ury_inset
+
+ury_inset <- ury_inset +
+  ggsn::scalebar(data = NULL, x.min = -75, x.max = -54, y.min = -39.5, y.max = -35, dist = 200, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.1, border.size = 0.15)
+
+ury_inset
+
+ggsave(file.path(gpath, "OriginsSelection_Figure1_URYInset.tiff"), units = "in", width = 2.7, height = 2.75, dpi = 300)
+
+dev.off()
+
+```
+
+U.S.
+```{r echo = TRUE, eval = FALSE}
+
+tmp_pts <- meta_dats %>%
+  filter(Country %in% c("United States")) %>%
+  filter(!is.na(Latitude_DD)) %>%
+  dplyr::select(Site_Code, Latitude_DD, Longitude_DD) %>%
+  distinct()
+glimpse(tmp_pts)
+tmp_pts
+
+us_inset <- ggplot(data = tmp_pts) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray85") +
+  geom_polygon(data = us, aes(x = long, y = lat, group = group), color = inv_bord, fill = "gray85", size = 0.5) +
+  # State borders
+  # geom_polygon(data = states, aes(x = long, y = lat, group = group), color = inv_bord, fill = "gray85", size = 0.25) +
+  geom_point(data = tmp_pts, aes(x = Longitude_DD, y = Latitude_DD), color = "black", fill = alpha(inv_bord, 1), shape = 21, size = 2) +
+  xlab("") + ylab("") +
+  coord_cartesian(xlim = c(-123, -66), ylim = c(25, 49)) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size = 12), 
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.5)
+   )
+
+# us_inset
+
+us_inset <- us_inset +
+  ggsn::scalebar(data = NULL, x.min = -120, x.max = -100, y.min = 40, y.max = 50, dist = 800, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.1, border.size = 0.15)
+
+us_inset
+
+ggsave(file.path(gpath, "OriginsSelection_Figure1_USInset.tiff"), units = "in", width = 3, height = 2, dpi = 300)
+
+dev.off()
+
+```
+
+Spain.
+```{r echo = TRUE, eval = FALSE}
+
+tmp_pts <- meta_dats %>%
+  filter(Country %in% c("Spain")) %>%
+  filter(!is.na(Latitude_DD)) %>%
+  dplyr::select(Site_Code, Latitude_DD, Longitude_DD) %>%
+  distinct()
+glimpse(tmp_pts)
+tmp_pts
+
+sp_inset <- ggplot(data = tmp_pts) +
+  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray85") +
+  geom_polygon(data = spain, aes(x = long, y = lat, group = group), color = inv_bord, fill = "gray85", size = 0.5) +
+  geom_polygon(data = canaria, aes(x = long, y = lat, group = group), color = inv_bord, fill = "gray85", size = 0.5) +
+  geom_point(data = tmp_pts, aes(x = Longitude_DD, y = Latitude_DD), color = "black", fill = alpha(inv_bord, 1), shape = 21, size = 2) +
+  xlab("") + ylab("") +
+  coord_cartesian(xlim = c(-17, 5), ylim = c(28, 44)) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size = 12), 
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.5)
+   )
+
+# sp_inset
+
+sp_inset <- sp_inset +
+  ggsn::scalebar(data = NULL, x.min = -14, x.max = -10, y.min = 36, y.max = 40, dist = 300, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.15, border.size = 0.15)
+
+sp_inset
+
+ggsave(file.path(gpath, "OriginsSelection_Figure1_SpainInset.tiff"), units = "in", width = 3, height = 2, dpi = 300)
+
+dev.off()
+
+```
+
+```{r echo = TRUE, eval = FALSE}
 
 # 4. Make a map of genetic sampling areas
 
@@ -272,52 +451,6 @@ gg_inset <- ggplot() +
 gg_inset
 
 dev.off()
-
-
-# 6. Make a general worldwide RAD sampling map with state/country polygons filled in
-n <- 12
-states <- map_data("state") %>%
-  filter(region %in% c("washington", "illinois", "florida", "connecticut"))
-str(states)
-
-spain <- map_data("world") %>%
-  filter(region %in% c("Spain"))
-str(spain)
-
-arg <- map_data("world") %>%
-  filter(region %in% c("Argentina"))
-str(arg)
-
-world <- map_data("world")
-
-gg_wrld <- ggplot() +
-  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray65") +
-  geom_polygon(data = states, aes(x = long, y = lat, group = group), fill = heat.colors(n)[5]) +
-  geom_polygon(data = spain, aes(x = long, y = lat, group = group), fill = heat.colors(n)[5]) +
-  geom_polygon(data = arg, aes(x = long, y = lat, group = group), fill = topo.colors(n)[3]) +
-  xlab("Longitude (Decimal Degrees)") + ylab("Latitude (Decimal Degrees)") +
-  theme_classic() +
-  theme(axis.title = element_text(size = 18), axis.text = element_text(size = 14))
-
-gg_wrld <- gg_wrld +
-  scalebar(x.min = 0, x.max = 50, y.min = -50, y.max = -20, dist = 1500, dd2km = TRUE, model = "WGS84", height = 0.15, st.size = 3.5, st.dist = 0.15)
-
-gg_wrld
-
-
-buf <- 0.1
-symbol <- 1
-symbol <- sprintf("%02.f", symbol)
-symbol <- readPNG(paste0(system.file("symbols", package = "ggsn"), 
-                         "/", symbol, ".png"))
-symbol <- rasterGrob(symbol, interpolate = TRUE)
-gg_wrld <- gg_wrld + annotation_custom(grob = symbol, xmin = -180, xmax = -130, 
-                                       ymin = -10, ymax = 10)
-
-gg_wrld
-
-ggsave(file.path(gpath, "RAD-seq_Round1_WorldMap.jpeg"), units = "cm", width = 26, height = 14, dpi = 200)  
-
 
 
 
