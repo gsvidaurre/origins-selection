@@ -1,0 +1,247 @@
+---
+title: "clone_filter discards"
+author: "Grace Smith-Vidaurre"
+date: "November 12, 2020"
+output: html_document
+---
+
+```{r setup, eval = TRUE, echo = FALSE}
+
+knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-selection")
+
+```
+
+Purpose: Figuring out how many reads were dropped for the paired-end libraries during clone_filter pre-processing to remove PCR duplicates.
+
+```{r echo = TRUE, eval = TRUE, message = FALSE}
+
+rm(list = ls())
+
+X <- c("tidyverse", "pbapply", "data.table", "adegenet", "openxlsx")
+invisible(lapply(X, library, character.only = TRUE))
+
+# Path to the metadata spreadsheet
+xls_path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA/Metadata_Barcodes"
+
+# Path to clone_filter output
+clone_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/cleaned/clone_filter"
+
+# Path to kmer_filter output for [aired-end libraries
+kmer_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/cleaned/kmer_filter/paired_end"
+
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/FIGURES"
+
+seed <- 401
+cores <- parallel::detectCores() - 2
+
+```
+
+Read in metadata.
+```{r echo = TRUE, eval = TRUE}
+
+meta_dats <- read.xlsx(file.path(xls_path, "Mymon_RADlibraries_2015_2019_CombinedMetadata.xlsx"))
+glimpse(meta_dats)
+
+```
+
+Read in the 2 files with clone_filter standard output and error. I had to run clone_filter twice, since one or more samples were so large that the run was failing on Discovery.
+```{r echo = TRUE, eval = TRUE}
+
+cf_oe <- readLines(file.path(clone_path, "clone_filter.oe"))
+str(cf_oe)
+
+cf_oe2 <- readLines(file.path(clone_path, "clone_filter2.oe"))
+str(cf_oe2)
+
+# Get lines with sample names
+s <- cf_oe[grep("Processing file", cf_oe)]
+s
+
+# Remove the file that was processed later
+s <- s[-grep("PE_lib2_NAT_ELGE_NMSU-208_CCGTGAGA.1.fq.gz", s)]
+s
+
+s2 <- cf_oe2[grep("Processing file", cf_oe2)]
+s2
+
+# Get just file names
+samps <- c(s, s2)
+
+# i <- 1
+samp_nms <- sapply(1:length(samps), function(i){
+  gsub("\\[|\\]", "", strsplit(samps[i], split = " ")[[1]][6])
+})
+samp_nms
+
+# Get lines with summary statistics
+l <- cf_oe[grep("pairs of reads input", cf_oe)]
+l2 <- cf_oe2[grep("pairs of reads input", cf_oe2)]
+
+lns <- c(l, l2)
+
+# Iterate over samples to return summary statistics
+# i <- 1
+clones_df <- rbindlist(pblapply(1:length(samp_nms), function(i){
+  
+  tmp <- strsplit(lns[i], split = "\\. ")[[1]]
+
+  total_pairs <- as.numeric(gsub("pairs of reads input", "", tmp[1]))
+
+  tmp2 <- strsplit(tmp[2], split = ",")[[1]]
+
+  retained_pairs <- as.numeric(gsub("pairs of reads output", "", tmp2[1]))
+ 
+  discarded_pairs <- as.numeric(gsub(" discarded |pairs of reads", "", tmp2[2]))
+
+  percent_clones <- as.numeric(gsub(" |% clone reads.", "", tmp2[3]))
+
+  return(
+    data.frame(
+      sample_nm = samp_nms[i],
+      total_pairs = total_pairs,
+      retained_pairs = retained_pairs,
+      discarded_pairs = discarded_pairs,
+      percent_clones = percent_clones
+    )
+  )
+  
+}))
+
+clones_df
+
+# No NAs
+# which(is.na(clones_df$percent_clones))
+
+# Visual of percent of clones discarded (relative to total pairs) across samples
+clones_df %>%
+  ggplot(aes(x = percent_clones)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(limits = c(0, 100)) +
+  xlab("Percent clones relative to total pairs") +
+  ylab("Count") +
+  theme_bw()
+
+```
+
+Most samples had less than 25% of reads identified as clones and subsequently removed. This doesn't seem overly conservative. 
+
+I also ran kmer_filter after clone_filter for the paired-end reads, checking out how many reads were dropped during this subsequent filtering step.
+
+From kmer_filter.oe:
+
+"Filtering out reads by identifying rare kmers: On.
+  A kmer is considered rare when its coverage is at 15% or below the median kmer coverage for the read.
+  A read is dropped when it contains 12 or more rare kmers in a row.
+Filtering out reads by identifying abundant kmers: On.
+  Kmer is considered abundant when it occurs 20000 or more times.
+  A read is dropped when it contains 80% or more abundant kmers"
+  
+```{r echo = TRUE, eval = TRUE}
+
+kf_oe <- readLines(file.path(kmer_path, "kmer_filter.oe"))
+str(kf_oe)
+
+# 5042120 total sequences;
+#   1376443 rare k-mer reads;
+#   4389 abundant k-mer reads;
+# 3661288 retained reads.
+
+# Get lines with sample names
+samps <- kf_oe[grep("Generating kmers from file", kf_oe)]
+samps
+
+# i <- 1
+samp_nms <- sapply(1:length(samps), function(i){
+  gsub("\\[|\\]", "", strsplit(samps[i], split = " ")[[1]][8])
+})
+samp_nms
+
+# Get unique sample names
+samp_nms <- gsub(".1.1.fq", "", samp_nms[-grep("2.2.fq", samp_nms)])
+samp_nms
+
+# Get indices of lines with summary statistics
+inds <- grep("total sequences", kf_oe)
+# 
+
+# Iterate over samples to return summary statistics
+# Note that these statistics apply to the forward and reverse per pair, combined
+# i <- 1
+kmer_df <- rbindlist(pblapply(1:length(samp_nms), function(i){
+  
+  # Get lines with summary statistics for the given sample
+  tmp <- kf_oe[inds[i]:(inds[i] + 4)]
+
+  total_sequences <- as.numeric(gsub("total sequences;", "", tmp[1]))
+
+  rare_kmer_reads <- as.numeric(gsub(" rare k-mer reads;|  ", "", tmp[2]))
+ 
+  abundant_kmer_reads <- as.numeric(gsub("  | abundant k-mer reads;", "", tmp[3]))
+
+  retained_reads <- as.numeric(gsub(" retained reads.", "", tmp[4]))
+  
+  percent_kmers <- ((rare_kmer_reads + abundant_kmer_reads)/total_sequences)*100
+
+  return(
+    data.frame(
+      sample_nm = samp_nms[i],
+      total_sequences = total_sequences,
+      rare_kmer_reads = rare_kmer_reads,
+      abundant_kmer_reads = abundant_kmer_reads,
+      retained_reads = retained_reads,
+      percent_kmers = percent_kmers
+    )
+  )
+  
+}))
+
+kmer_df
+
+# No NAs
+# which(is.na(kmer_df$percent_kmers))
+
+# Visual of percent of kmers discarded (relative to total reads) across samples
+kmer_df %>%
+  ggplot(aes(x = percent_kmers)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(limits = c(0, 100)) +
+  xlab("Percent kmers relative to total reads") +
+  ylab("Count") +
+  theme_bw()
+
+```
+
+About 25% of reads on aerage were discarded (this is across both paired-end samples per individual). So this means that after these two filtering steps (clone_filter, kmer_filter), a lot of reads were discarded. What's unfortunate is that summary statistics following both pipeline components are using different units (pairs versus reads). It might be more straightforward to just get the number of reads retained per forward and paired-end file after each filtering step instead using command line
+
+
+After this, need to take a close look at the denovo pipeline log and figure out other places where a lot of reads could have been dropped, to yield the low number of overall loci (about 6.4k).
+
+From denovo_map.pl populations.log: 
+
+"
+Removed 172959 loci that did not pass sample/population constraints from 186288 loci.
+Kept 13329 loci, composed of 7526211 sites; 104034 of those sites were filtered, 6441 variant sites remained.
+Number of loci with PE contig: 13329.00 (100.0%);
+  Mean length of loci: 554.65bp (stderr 0.40);
+Number of loci with SE/PE overlap: 13329.00 (100.0%);
+  Mean length of overlapping loci: 564.65bp (stderr 0.40); mean overlap: 31.00bp (stderr 0.00);
+Mean genotyped sites per locus: 564.65bp (stderr 0.40).
+
+Population summary statistics (more detail in populations.sumstats_summary.tsv):
+  1: 118.1 samples per locus; pi: 0.21838; all/variant/polymorphic sites: 7526202/6441/6441; private alleles: 0
+"
+
+Here, 172959/186288 of loci, or 92.8% of loci, did not pass the sample or population constraints, which left the low number of 6441 polymorphics SNPs. I bet what happened was that the stringent filtering above led to loci being dropped across many samples, which then dropped durther after applying the r80 rule. 
+
+For the single-end libraries, also from populations.og:
+
+"
+Removed 1105175 loci that did not pass sample/population constraints from 1172197 loci.
+Kept 67022 loci, composed of 6314201 sites; 160118 of those sites were filtered, 34244 variant sites remained.
+"
+
+A similar level of dropping loci occurred for the single-end libraries, but overall, more loci remained: 1105175/1172197 = 94.2% of loci were dropped, but this still yielded 34,244 polymorphic SNPs.
+
+Overall, an order of magnitude more SNPs went into populations for the single-end samples compared to the paired-end, which given that the paired-end samples additionally went through clone_filter, can probably be attributed to this filtering step.
+
+

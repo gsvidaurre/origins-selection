@@ -11,7 +11,7 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 ```
 
-Purpose: Parsing blastn results to run blastx, also parsing blastx results. For outliers and extended sequences of the budgie genome.
+Purpose: Population genetics statistics.
 
 ```{r echo = TRUE, eval = TRUE, message = FALSE}
 
@@ -32,7 +32,7 @@ path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/BLAST"
 # Path where population maps written
 map_path <- "/media/owner/MYIOPSITTA/R/Origins_Selection/info"
 
-gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/GRAPHICS"
+gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/FIGURES"
 
 seed <- 401
 cores <- parallel::detectCores() - 2
@@ -49,9 +49,6 @@ glimpse(meta_dats)
 
 Use hierfstat to get observed heterozygosity (Ho) and within population gene diversity (Hs). 
 ```{r echo = TRUE, eval = TRUE}
-
-data(gtrunchier)
-str(gtrunchier)
 
 # Needs a data frame in which the first column is the population, and the following columns are the genotypes per individual (one locus per column)
 # I might be able to get this from reading in and manipulating the associated Structure file for the 561 neutral and outlier SNPs
@@ -214,10 +211,77 @@ popgen_stats <- basic.stats(
 # str(popgen_stats$Ho)
 
 # This is Ho (observed heterozygosity) by site across neutral and outlier loci
-round(apply(popgen_stats$Ho, 2, mean), 3)
+Ho <- round(apply(popgen_stats$Ho, 2, mean), 3)
+Ho
 
 # This is Hs (observed gene diversities) by site across neutral and outlier loci
-round(apply(popgen_stats$Hs, 2, mean), 3)
+Hs <- round(apply(popgen_stats$Hs, 2, mean), 3)
+Hs
+
+```
+
+Make a figure for sampling site statistics, for defense talk.
+```{r echo = TRUE, eval = TRUE}
+
+stats_df <- data.frame(sites = names(Ho)) %>%
+  dplyr::mutate(
+    Ho = Ho,
+    Hs = Hs
+  )
+stats_df
+
+cols <- scales::alpha(c("navy", "orange"), 0.65)
+
+# New facet labels
+stats_labeller <- as_labeller(c(Ho = "H[O]:~Observed~heterozygosity", Hs = "H[S]:~Observed~gene~diversity"), default = label_parsed)
+
+stats_df %>%
+  # Join back to metadata to get region
+  inner_join(
+    meta_dats %>%
+      dplyr::select(Site_Code, Region) %>%
+      distinct(),
+    by = c("sites" = "Site_Code")
+  ) %>%
+  # Remove sites that had few samples and therefore NAs in Hs
+  filter(!is.na(Hs)) %>%
+  # Remove Southern Argentina sites
+  filter(!sites %in% c("BAIR", "LURO", "ALGA")) %>%
+  # Rearrange site codes by region 
+  dplyr::mutate(
+    Region = factor(Region, levels = c("Northern Argentina", "Southwestern Uruguay", "South Central Uruguay", "Spain", "Southern United States", "Northern United States"))
+  ) %>%
+  dplyr::mutate(
+    sites = factor(sites, levels = c("BAZO", "ERIO", "1135", "1145", "CHAC", "ELGE", "EMBR", "SEMI-3", "SOLE", "BCAR", "PEIX", "BARC", "ZARA", "MADR", "MALL", "GRCA", "FLOR", "ILLI", "WASH", "CNCT"))
+  ) %>%
+  dplyr::mutate(
+    range = Region,
+    range = ifelse(grepl("Argentina|Uruguay", Region), "Native", "Invasive"),
+    range = factor(range, levels = c("Native", "Invasive"))
+  ) %>%
+  pivot_longer(
+    cols = c("Ho", "Hs"),
+    names_to = "statistics",
+    values_to = "values"
+  ) %>%
+  ggplot(aes(x = sites, y = values, fill = range)) +
+  geom_col() +
+  facet_grid(~ statistics, labeller = stats_labeller) +
+  scale_fill_manual(values = cols) +
+  guides(fill = guide_legend(title = "")) +
+  xlab("") + ylab("") +
+  theme_bw() +
+  theme(
+    strip.text = element_text(size = 14),
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12, angle = 60, hjust = 1),
+    legend.position = "top",
+    legend.text = element_text(size = 12),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+  
+ggsave(file.path(gpath, "Popgen_statistics.tiff"), units = "in", width = 10.5, height = 5.5, dpi = 300)
 
 ```
 

@@ -11,16 +11,25 @@ knitr::opts_knit$set(root.dir = "/home/owner/Desktop/GitHub_repos/origins-select
 
 ```
 
-Purpose: Make sampling maps for RAD-seq thesis chapter manuscript.
+Purpose: Make sampling maps for RAD-seq thesis chapter manuscript. Can I access eBird sightings for Jan 2018 to Oct 2020 to get all countries in which monks have been seen this year? In their invasive range.
 
 ```{r echo = TRUE, eval = TRUE}
 
+# Fails with memory issue, aborted
+# library(devtools)
+# install_github("coolbutuseless/ggpattern")
+
 rm(list = ls())
 
-# "shapefiles", "broom", "geosphere", "GISTools",
-X <- c("ggmap", "scales", "RColorBrewer", "rgeos", "rgdal", "sp", "pbapply", "shapefiles", "maps", "mapdata", "maptools", "measurements", "data.table", "grid", "gridExtra", "gtable", "plotrix", "gplots", "ggsn", "png", "colorspace", "grDevices", "ggplot2", "tidyverse", "openxlsx")
+X <- c("ggmap", "scales", "RColorBrewer", "rgeos", "rgdal", "sp", "pbapply", "shapefiles", "maps", "mapdata", "maptools", "measurements", "data.table", "grid", "gridExtra", "gtable", "plotrix", "gplots", "ggsn", "png", "colorspace", "grDevices", "ggplot2", "tidyverse", "openxlsx", "auk")
 
 invisible(lapply(X, library, character.only = TRUE))
+
+# Path to URY polygons
+path <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/DATA"
+
+# Path to eBird data
+epath <- "/media/owner/MYIOPSITTA/R/Origins_Selection"
 
 gpath <- "/home/owner/Desktop/MANUSCRIPTS/Origins_Selection/FIGURES"
 
@@ -56,34 +65,81 @@ meta_dats %>%
 
 ```
 
+eBird basic dataset request for Myiopsitta monachus in all regions, on 28 October 2020, for Jan. 2018 to October 2020.
+```{r echo = TRUE, eval = FALSE}
+
+# grep("Hawaii|Alaska", unique(countries$state))
+
+countries <- read_ebd(file.path(epath, "ebd_monpar_201801_202010_relSep-2020.txt")) %>%
+  pull(country) %>%
+  unique()
+
+countries
+
+# Exclude countries in the native range
+countries <- countries[-grep("Brazil|Argentina|Bolivia|Uruguay|Paraguay", countries)]
+countries
+
+# Replace "United States" with "USA", replace "United Kingdom" with UK
+countries <- gsub("United States", "USA", countries)
+countries <- gsub("United Kingdom", "UK", countries)
+countries
+
+```
+
 Make a general worldwide RAD sampling map. Consider coloring country boundaries for emphasis.
 ```{r echo = TRUE, eval = FALSE}
 
-us <- map_data("world") %>%
-  filter(region %in% c("USA")) %>%
-  filter(!subregion %in% c("Hawaii", "Alaska", "Guam", "Puerto Rico"))
-str(us)
+# Add info about countries where monk parakeet sightings documented on eBird from Jan 2018 - Oct 2020
+inv_countries <- map_data("world") %>%
+  filter(region %in% countries) %>%
+  # Remove islands or regions known to not have sightings (checked eBird map online for this date range)
+  filter(!subregion %in% c("Hawaii", "Alaska", "Guam", "Channel Islands", "Northern Ireland", "Shetland Islands", "Scotland", "Wales")) %>%
+  filter(!grepl("Island|Isla|Isola|Isle", subregion)) %>%
+  droplevels()
+glimpse(inv_countries)
 
-states <- map_data("state") %>%
-  filter(region %in% c("washington", "illinois", "florida", "connecticut"))
-str(states)
+inv_countries %>%
+  filter(region == "UK") %>%
+  pull(subregion) %>%
+  unique()
+
+# us <- map_data("world") %>%
+#   filter(region %in% c("USA")) %>%
+#   filter(!subregion %in% c("Hawaii", "Alaska", "Guam", "Puerto Rico"))
+# str(us)
+
+# states <- map_data("state") %>%
+#   filter(region %in% c("washington", "illinois", "florida", "connecticut"))
+# str(states)
 
 spain <- map_data("world") %>%
   filter(region %in% c("Spain"))
 str(spain)
 
+# Needs to be added 
 canaria <- map_data("world") %>%
   filter(region %in% c("Canary Islands")) %>%
   filter(subregion == "Gran Canaria")
 str(canaria)
 
-ury <- map_data("world") %>%
-  filter(region %in% c("Uruguay"))
-str(ury)
+# Instead, read in the BirdLife species distribution map
+mymon_distr <- readOGR(dsn = path, layer = "Myiopsitta_monachus")
+# str(mymon_distr)
+class(mymon_distr)
+str(mymon_distr@data)
+length(mymon_distr)
+length(mymon_distr[[1]])
 
-arg <- map_data("world") %>%
-  filter(region %in% c("Argentina"))
-str(arg)
+# Citation
+# mymon_distr@data$CITATION
+
+# Keep only the largest polygon, which corresponds to South America
+wh <- which(mymon_distr@data$Shape_Area == max(mymon_distr@data$Shape_Area))
+
+mymon_distr <- mymon_distr[wh, ]
+length(mymon_distr)
+str(mymon_distr)
 
 world <- map_data("world")
 glimpse(world)
@@ -93,17 +149,15 @@ inv_bord <- c("darkgoldenrod1")
 
 gg_wrld <- ggplot(data = world) +
   geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray75") +
-  # contiguous US border
-  geom_polygon(data = us, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
-  geom_polygon(data = spain, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
+  # Add the countries with eBird sightings
+   geom_polygon(data = inv_countries, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
   geom_polygon(data = canaria, aes(x = long, y = lat, group = group), color = inv_bord, fill = alpha(inv_bord, 0.5)) +
-  geom_polygon(data = ury, aes(x = long, y = lat, group = group), color = nat_bord, fill = alpha(nat_bord, 0.5)) +
-  geom_polygon(data = arg, aes(x = long, y = lat, group = group), color = nat_bord, fill = alpha(nat_bord, 0.5)) +
+  geom_polygon(data = mymon_distr, aes(x = long, y = lat, group = group), color = nat_bord, fill = alpha(nat_bord, 0.5)) +
   xlab("Longitude (Decimal Degrees)") + ylab("Latitude (Decimal Degrees)") +
-  coord_cartesian(xlim = c(-170, 90)) +
+  coord_cartesian(xlim = c(-160, 176), ylim = c(-52, 80)) +
   theme_classic() +
   theme(
-    axis.title = element_text(size = 18), 
+    axis.title = element_text(size = 14), 
     axis.text = element_text(size = 14),
     panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.75)
  )
@@ -111,7 +165,7 @@ gg_wrld <- ggplot(data = world) +
 gg_wrld
 
 gg_wrld <- gg_wrld +
-  ggsn::scalebar(data = NULL, x.min = 0, x.max = 50, y.min = -50, y.max = -20, dist = 1500, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.10, st.size = 3.5, st.dist = 0.10, border.size = 0.15)
+  ggsn::scalebar(data = NULL, x.min = -160, x.max = -100, y.min = -35, y.max = -5, dist = 2000, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.10, st.size = 3.5, st.dist = 0.15, border.size = 0.15)
 
 gg_wrld
 
@@ -122,12 +176,14 @@ symbol <- sprintf("%02.f", symbol)
 symbol <- readPNG(paste0(system.file("symbols", package = "ggsn"), 
                          "/", symbol, ".png"))
 symbol <- rasterGrob(symbol, interpolate = TRUE)
-gg_wrld <- gg_wrld + annotation_custom(grob = symbol, xmin = -150, xmax = -135, 
-                                       ymin = 35, ymax = 50)
+gg_wrld <- gg_wrld + annotation_custom(grob = symbol, xmin = -150, xmax = -100, 
+                                       ymin = -25, ymax = 0)
 
 gg_wrld
 
-ggsave(file.path(gpath, "OriginsSelection_Figure1_WorldMap.tiff"), units = "in", width = 8.5, height = 6, dpi = 300)
+ggsave(file.path(gpath, "OriginsSelection_Figure1_WorldMap.tiff"), units = "in", width = 11, height = 3.5, dpi = 300)
+
+ggsave(file.path(gpath, "OriginsSelection_Figure1_WorldMap_lrg.tiff"), units = "in", width = 8.05, height = 5, dpi = 300)
 
 dev.off()
 
@@ -135,8 +191,16 @@ dev.off()
 
 Now need to make inset maps. Each map should have points, and labels for sampling sites above these.
 
-Uruguay and Argentina.
+Uruguay and Argentina. Add the species distribution instead of country polygons.
 ```{r echo = TRUE, eval = FALSE}
+
+ury <- map_data("world") %>%
+  filter(region %in% c("Uruguay"))
+str(ury)
+
+arg <- map_data("world") %>%
+  filter(region %in% c("Argentina"))
+str(arg)
 
 tmp_pts <- meta_dats %>%
   filter(Country %in% c("Uruguay", "Argentina")) %>%
@@ -167,44 +231,82 @@ ury_arg_inset <- ury_arg_inset +
 
 ury_arg_inset
 
-ggsave(file.path(gpath, "OriginsSelection_Figure1_NativeInset.tiff"), units = "in", width = 2.7, height = 2.75, dpi = 300)
+ggsave(file.path(gpath, "OriginsSelection_Figure1_NativeInset.tiff"), units = "in", width = 3.60, height = 2.9, dpi = 300)
 
 dev.off()
 
 ```
 
-Just Uruguay, include exporter's aviaries....
+Just Uruguay, include exporter's aviaries....Using a finer-detailed country polygon with departmental polygons too.
 ```{r echo = TRUE, eval = FALSE}
 
+# From the Google Map I made in My Maps in 2017:
+# -34.8028801, -56.2582612
+# Camino La Redención 2448
+
 tmp_pts <- meta_dats %>%
-  filter(Country %in% c("Uruguay", "Argentina")) %>%
+  filter(Country %in% c("Uruguay")) %>%
   filter(!is.na(Latitude_DD)) %>%
   dplyr::select(Site_Code, Latitude_DD, Longitude_DD) %>%
-  distinct()
+  distinct() %>%
+  bind_rows(
+    data.frame(
+      Site_Code = "Exporter's aviaries",
+      Latitude_DD = -34.8028801, 
+      Longitude_DD = -56.2582612
+    )
+  )
 glimpse(tmp_pts)
 
+# Uruguay county border
+URY_adm0 <- readOGR(dsn = path, layer = "URY_adm0")
+slotNames(URY_adm0)
+proj4string(URY_adm0)
+
+# Uruguay county borders
+URY_adm1 <- readOGR(dsn = path, layer = "URY_adm1")
+slotNames(URY_adm1)
+proj4string(URY_adm1)
+
+# merge the URY county polgyons into one
+str(URY_adm1@data)
+m <- raster::union(URY_adm1[URY_adm1$NAME_1 == "Colonia", ], URY_adm1[URY_adm1$NAME_1 == "San José", ])
+m2 <- raster::union(m, URY_adm1[URY_adm1$NAME_1 == "Canelones", ])
+m3 <- raster::union(m2, URY_adm1[URY_adm1$NAME_1 == "Montevideo", ])
+m4 <- raster::union(m3, URY_adm1[URY_adm1$NAME_1 == "Florida", ])
+
+# Read in Argentina country borders
+a <- readRDS(file.path(path, "gadm36_ARG_0_sp.rds"))
+
 ury_inset <- ggplot(data = tmp_pts) +
-  geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray85") +
-  geom_polygon(data = ury, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
-  geom_point(data = tmp_pts, aes(x = Longitude_DD, y = Latitude_DD), fill = alpha(nat_bord, 1), shape = 21, size = 2) +
+  # geom_polygon(data = world, aes(x = long, y = lat, group = group), fill = "gray85") +
+  # geom_polygon(data = ury, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
+  geom_polygon(data = a, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
+  geom_polygon(data = m4, aes(x = long, y = lat, group = group), color = nat_bord, fill = "gray85", size = 0.25) +
+  geom_point(data = tmp_pts %>%
+                 filter(Site_Code != "Exporter's aviaries"), 
+             aes(x = Longitude_DD, y = Latitude_DD), fill = alpha(nat_bord, 0.65), shape = 21, size = 2) +
+  geom_point(data = tmp_pts %>%
+                 filter(Site_Code == "Exporter's aviaries"), 
+             aes(x = Longitude_DD, y = Latitude_DD), color = "firebrick", shape = 8, size = 2) +
   xlab("") + ylab("") +
-  coord_cartesian(xlim = c(-65, -53), ylim = c(-40, -24)) +
+  coord_cartesian(xlim = c(-57.8, -56.2), ylim = c(-34.92, -34.3)) +
   theme_classic() +
   theme(
     axis.title = element_text(size = 12), 
     axis.text.y = element_text(size = 12),
-    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
+    axis.text.x = element_text(size = 12),
     panel.border = element_rect(fill = alpha("white", 0), color = "black", size = 0.75)
    )
 
 ury_inset
 
 ury_inset <- ury_inset +
-  ggsn::scalebar(data = NULL, x.min = -75, x.max = -54, y.min = -39.5, y.max = -35, dist = 200, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.1, border.size = 0.15)
+  ggsn::scalebar(data = NULL, x.min = -57.75, x.max = -57.0, y.min = -34.85, y.max = -34.7, dist = 25, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.25, st.size = 3, st.dist = 0.25, border.size = 0.15)
 
 ury_inset
 
-ggsave(file.path(gpath, "OriginsSelection_Figure1_URYInset.tiff"), units = "in", width = 2.7, height = 2.75, dpi = 300)
+ggsave(file.path(gpath, "OriginsSelection_Figure1_URYInset.tiff"), units = "in", width = 6.35, height = 2.85, dpi = 300)
 
 dev.off()
 
@@ -240,11 +342,11 @@ us_inset <- ggplot(data = tmp_pts) +
 # us_inset
 
 us_inset <- us_inset +
-  ggsn::scalebar(data = NULL, x.min = -120, x.max = -100, y.min = 40, y.max = 50, dist = 800, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.1, border.size = 0.15)
+  ggsn::scalebar(data = NULL, x.min = -120, x.max = -105, y.min = 27, y.max = 35, dist = 800, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 4, st.dist = 0.2, border.size = 0.15)
 
 us_inset
 
-ggsave(file.path(gpath, "OriginsSelection_Figure1_USInset.tiff"), units = "in", width = 3, height = 2, dpi = 300)
+ggsave(file.path(gpath, "OriginsSelection_Figure1_USInset.tiff"), units = "in", width = 5.25, height = 2.45, dpi = 300)
 
 dev.off()
 
@@ -279,179 +381,13 @@ sp_inset <- ggplot(data = tmp_pts) +
 # sp_inset
 
 sp_inset <- sp_inset +
-  ggsn::scalebar(data = NULL, x.min = -14, x.max = -10, y.min = 36, y.max = 40, dist = 300, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 2.5, st.dist = 0.15, border.size = 0.15)
+  ggsn::scalebar(data = NULL, x.min = -15, x.max = 3, y.min = 30, y.max = 35, dist = 300, transform = TRUE, dist_unit = "km", model = "WGS84", height = 0.15, st.size = 4, st.dist = 0.2, border.size = 0.15)
 
 sp_inset
 
-ggsave(file.path(gpath, "OriginsSelection_Figure1_SpainInset.tiff"), units = "in", width = 3, height = 2, dpi = 300)
+ggsave(file.path(gpath, "OriginsSelection_Figure1_SpainInset.tiff"), units = "in", width = 5.25, height = 2.45, dpi = 300)
 
 dev.off()
 
 ```
 
-```{r echo = TRUE, eval = FALSE}
-
-# 4. Make a map of genetic sampling areas
-
-# Uruguay county border
-URY_adm0 <- readOGR(dsn = path, layer = "URY_adm0")
-slotNames(URY_adm0)
-proj4string(URY_adm0)
-
-# Uruguay county borders
-URY_adm1 <- readOGR(dsn = path, layer = "URY_adm1")
-slotNames(URY_adm1)
-proj4string(URY_adm1)
-
-# merge the URY county polgyons into one
-str(URY_adm1@data)
-m <- raster::union(URY_adm1[URY_adm1$NAME_1 == "Colonia", ], URY_adm1[URY_adm1$NAME_1 == "San José", ])
-m2 <- raster::union(m, URY_adm1[URY_adm1$NAME_1 == "Canelones", ])
-m3 <- raster::union(m2, URY_adm1[URY_adm1$NAME_1 == "Montevideo", ])
-m4 <- raster::union(m3, URY_adm1[URY_adm1$NAME_1 == "Maldonado", ])
-m5 <- raster::union(m4, URY_adm1[URY_adm1$NAME_1 == "Rocha", ])
-m6 <- raster::union(m5, URY_adm1[URY_adm1$NAME_1 == "Salto", ])
-
-# Read in Argentina and Brazil country borders
-a <- readRDS(file.path(path, "gadm36_ARG_0_sp.rds"))
-b <- readRDS(file.path(path, "gadm36_BRA_0_sp.rds"))
-
-# order departments to match the geographic transect
-smpls$department <- factor(smpls$department, levels = c("Colonia", "San Jose", "Salto", "Canelones", "Montevideo", "Maldonado", "Rocha"))
-smpls$region <- smpls$department
-
-smpls$region <- gsub("Canelones|Montevideo", "Canelones & Montevideo", smpls$region)
-smpls$region <- factor(smpls$region, levels = c("Colonia", "San Jose", "Salto", "Canelones & Montevideo", "Maldonado", "Rocha"))
-
-n <- 12
-pie(rep(1,n), col = heat.colors(n))
-
-# make colors for water and land fill colors
-wfl <- gray.colors(n, alpha = 0.5)[12]
-lfl <- "white"
-
-# make sure colors sync across all figures
-# ggplot recognizes unicode values for new symbols
-# use these to encode department by both shapes and colors for greater clarity
-fill.cols <- c(topo.colors(n, alpha = 0.75)[2], topo.colors(n, alpha = 0.9)[4], terrain.colors(n, alpha = 0.9)[1], gray.colors(n, alpha = 0.9)[2], gray.colors(n, alpha = 0.9)[2], heat.colors(n, alpha = 0.9)[6], heat.colors(n, alpha = 0.9)[1])
-# shps <- c("\u25CF", "\u25C6", "\u25BC", "\u25A0", "\u25C4", "\u25B2")
-# shps <- c(-as.hexmode("25CF"), -as.hexmode("25C6"), -as.hexmode("25BC"), -as.hexmode("25A0"), -as.hexmode("25C4"), -as.hexmode("25B2"))
-cols <- c(rep("black", 5), heat.colors(n, alpha = 0.9)[6], "black")
-
-shps <- c(21, 23, 25, 22, -as.hexmode("25C4"), 24)
-sizes <- c(12, 12, 12, 12, 17, 12)
-
-# library(Hmisc)
-# show.col()
-# show.pch()
-
-TestUnicode <- function(start="25a0", end="25ff", ...)
-{
-  nstart <- as.hexmode(start)
-  nend <- as.hexmode(end)
-  r <- nstart:nend
-  s <- ceiling(sqrt(length(r)))
-  par(pty="s")
-  plot(c(-1,(s)), c(-1,(s)), type="n", xlab="", ylab="",
-       xaxs="i", yaxs="i")
-  grid(s+1, s+1, lty=1)
-  for(i in seq(r)) {
-    try(points(i%%s, i%/%s, pch=-1*r[i],...))
-  }
-}
-
-TestUnicode()
-dev.off()
-
-bufx <- 0.6
-bufy <- 0.3
-
-# Use these coordinates to make the same zoom map as in recordings figures
-wp <- read.csv(file.path(path, "recording_waypoints.csv"), header = TRUE)
-str(wp)
-
-jpeg(file.path(file.path(gpath, "Uruguay_genetic_sampling_base_map_noscale.jpeg")), width = 27, height = 30, units = "cm", res = 300)
-
-gg_base <- ggplot() +
-  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
-               fill = lfl, size = 1, data = URY_adm0) + 
-  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
-               fill = lfl, size = 0.6, data = a) + 
-  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
-               fill = lfl, size = 0.6, data = b) + 
-  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
-               fill = lfl, size = 0.6, data = m6) + 
-  geom_point(aes(x = lon, y = lat, color = department, shape = region, size = region, fill = department), data = smpls) +
-  scale_colour_manual(values = cols) + 
-  scale_fill_manual(values = fill.cols) +
-  scale_shape_manual(values = shps) + 
-  scale_size_manual(values = sizes) + guides(color = FALSE, shape = FALSE, size = FALSE, fill = FALSE) +
-  xlab("") + ylab("") + 
-  theme(panel.background = element_rect(fill = wfl), plot.background = element_rect(fill = lfl), plot.title = element_text(size = 25, hjust = 0.5),
-        panel.grid.major = element_line(size = 1, colour = wfl), 
-        panel.grid.minor = element_line(size = 0.75, colour = wfl), 
-        axis.line = element_line(size = 1.5, colour = "black"), 
-        axis.title = element_text(size = 30), 
-        axis.text = element_text(size = 30)) + 
-  # coord_cartesian(xlim = c(min(smpls$lon) - bufx, max(smpls$lon) + bufx), y = c(min(smpls$lat) - bufy, max(smpls$lat) + bufy*3))
-  coord_cartesian(xlim = c(min(wp$Longitude) - bufx, max(wp$Longitude) + bufx), y = c(min(wp$Latitude) - bufy, max(wp$Latitude) + bufy*3))
-
-# gg_base
-
-# gg_base <- gg_base + scale_bar(lon = -54.5, lat = -30.5,
-#                                distance_lon = 50, distance_lat = 10, distance_legend = 50, 
-#                                dist_unit = "km", orientation = FALSE, legend_size = 8)
-
-
-buf <- 0.1
-symbol <- 1
-symbol <- sprintf("%02.f", symbol)
-symbol <- readPNG(paste0(system.file("symbols", package = "ggsn"), 
-                         "/", symbol, ".png"))
-symbol <- rasterGrob(symbol, interpolate = TRUE)
-gg_base <- gg_base + annotation_custom(grob = symbol, xmin = max(wp$Longitude) - 1.5, xmax = max(wp$Longitude) - buf, 
-                                       ymin = max(wp$Latitude) - buf*4, ymax = max(wp$Latitude))
-
-gg_base
-
-dev.off()
-
-
-# 5. Next, make a smaller inset map of the southwestern coast
-
-buf1 <- 0.5
-buf2 <- 0.05
-
-
-jpeg(file.path(gpath, "Uruguay_sampling_inset_map_noscalebar.jpeg"), width = 25, height = 10, units = "cm", res = 300)
-
-# [URY_adm1$NAME_1 == "Colonia"| URY_adm1$NAME_1 == "Montevideo", ]
-
-gg_inset <- ggplot() +
-  geom_polygon(aes(x = long, y = lat, group = group), color = "black",
-               fill = "white", size = 0.5, data = URY_adm1[grepl("Colonia|San|Canelones|Montevideo|Maldonado|Rocha", URY_adm1$NAME_1)]) + 
-  geom_point(aes(x = lon, y = lat, color = department, shape = region, size = region, fill = department), data = smpls, size = 6) +
-  scale_colour_manual(values = cols) + 
-  scale_fill_manual(values = fill.cols) +
-  scale_shape_manual(values = shps) + 
-  scale_size_manual(values = sizes) +
-  xlab("") + ylab("") + 
-  theme(panel.background = element_rect(fill = wfl), plot.background = element_rect(fill = "white"), plot.title = element_text(size = 25, hjust = 0.5),
-        panel.grid.major = element_line(size = 1, colour = "white"), 
-        panel.grid.minor = element_line(size = 0.75, colour = "white"), 
-        axis.line = element_line(size = 0.75, colour = "black"), 
-        axis.title = element_text(size = 32), 
-        axis.text = element_text(size = 15)) + 
-  
-  coord_cartesian(xlim = c(min(wp$Longitude) - bufx, -55.5), y = c(-35.0, -34.2)) +
-  
-  # coord_cartesian(xlim = c(min(smpls$lon) - buf1, max(smpls$lon) + buf1), ylim = c(min(smpls$lat) - buf2, max(smpls$lat) + buf2)) +
-  guides(color = FALSE, shape = FALSE)
-
-gg_inset
-
-dev.off()
-
-
-
-```
