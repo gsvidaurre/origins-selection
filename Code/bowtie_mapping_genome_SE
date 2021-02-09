@@ -1,0 +1,41 @@
+#!/bin/bash
+## G.Smith-Vidaurre & D. Schmidt
+## 06 September 2020
+## Updated 09 Feb 2021
+
+## Purpose: Use bowtie2 to map the pre-processed SE reads to the indexed Myiopsitta FASTA file.
+
+#SBATCH --job-name bowtie_map
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1000M # default is 500M
+#SBATCH --time 4-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load bowtie2
+module load samtools
+
+path=/scratch/gsmithvi/geno_accur/single_end
+log_file=$path/bowtie2_map_genome_SE.oe
+genome_path=/scratch/gsmithvi/Genome/GCA_013036005.1_ASM1303600v1
+
+# Loop over each .fq file per sample to perform mapping and create a sorted BAM file per sample
+files=`for i in $path; do
+        find $i*/ -type f -iname "*.fq.gz";
+done`
+
+for i in $files; do
+
+	bowtie2 -x $genome_path/GCA_013036005.1_ASM1303600v1 -U $i -S ${i%%.*}.sam &> $log_file;
+	
+	samtools view -bS ${i%%.*}.sam -o ${i%%.*}.bam; 
+
+	samtools sort ${i%%.*}.bam -o ${i%%.*}.sorted.bam;
+	
+done
