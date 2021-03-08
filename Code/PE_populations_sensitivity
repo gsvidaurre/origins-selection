@@ -1,0 +1,36 @@
+#!/bin/bash
+## G.Smith-Vidaurre & D. Schmidt
+## 08 March 2021
+## Updated 08 March 2021
+
+## Purpose: Use populations module of Stacks 2.53 to run a sensitivity analysis for parameter selection. 
+
+#SBATCH --job-name populations_sensitivity
+#SBATCH --partition normal ## default
+#SBATCH --nodes 1 ## default
+#SBATCH --ntasks 1 ## default
+#SBATCH --cpus-per-task 32 ## number of threads, default is 1, changes ntasks, I still find that confusing
+#SBATCH --mem-per-cpu 1000M # default is 500M
+#SBATCH --time 4-01:00:00 ## Must be specified, the default for this partition is 7 days 1 hour max walltime (7-01:00:00)
+#SBATCH --mail-user gsmithvi@nmsu.edu
+#SBATCH --mail-type BEGIN ## will get an email when job starts
+#SBATCH --mail-type END ## will get an email when job ends
+#SBATCH --mail-type FAIL ## will get email when job fails
+#SBATCH --get-user-env ## pass on environmental settings
+
+module load stacks
+
+path=/scratch/gsmithvi/geno_accur/paired_end
+log_file=$path/PE_sens_analy.oe
+
+# run populations over each value of R (# of individuals SNPs must be present in) and then minor allele frequency (MAF) to create initial SNP dataset for genotype comparisons  
+cd $path/PE_sensitivity_analysis
+for R in {70..95..5};
+	do mkdir PE_populations'_'${R}; 
+	cd PE_populations'_'${R};
+	for MAF in {1..5..1};
+		do mkdir MAF'_0.0'${MAF};
+		populations -P $path/PE_gstacks/ -O $path/PE_sensitivity_analysis/PE_populations'_'${R}/MAF'_0.0'${MAF}/ -M $path/PE_popmap_gstacks_geno_accur.txt -t 4 -R 0.${R} --min-maf 0.0${MAF} --write-single-snp --vcf;
+	done
+	cd ../
+done	
